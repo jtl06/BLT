@@ -3,13 +3,13 @@
  * Title:        arm_cmplx_mag_q15.c
  * Description:  Q15 complex magnitude
  *
- * $Date:        23 April 2021
- * $Revision:    V1.9.0
+ * $Date:        18. March 2019
+ * $Revision:    V1.6.0
  *
- * Target Processor: Cortex-M and Cortex-A cores
+ * Target Processor: Cortex-M cores
  * -------------------------------------------------------------------- */
 /*
- * Copyright (C) 2010-2021 ARM Limited or its affiliates. All rights reserved.
+ * Copyright (C) 2010-2019 ARM Limited or its affiliates. All rights reserved.
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,7 +26,7 @@
  * limitations under the License.
  */
 
-#include "dsp/complex_math_functions.h"
+#include "arm_math.h"
 
 /**
   @ingroup groupCmplxMath
@@ -48,105 +48,11 @@
                    The function implements 1.15 by 1.15 multiplications and finally output is converted into 2.14 format.
  */
 
-/* Sqrt q31 is used otherwise accuracy is not good enough
-           for small values and for some applications it is
-           an issue.
-        */
-#if defined(ARM_MATH_MVEI) && !defined(ARM_MATH_AUTOVECTORIZE)
-
-#include "arm_helium_utils.h"
-
 void arm_cmplx_mag_q15(
   const q15_t * pSrc,
         q15_t * pDst,
         uint32_t numSamples)
 {
-
-    int32_t blockSize = numSamples;  /* loop counters */
-    uint32_t  blkCnt;           /* loop counters */
-    q15x8x2_t vecSrc;
-    q31x4_t prod0;
-    q31x4_t prod1;
-
-    q31_t in;
-    q31_t acc0;
-    q31x4_t acc0V;
-    q31x4_t acc1V;
-
-    q31_t res;
-    q15x8_t resV;
-
-    blkCnt = blockSize >> 3;
-    while (blkCnt > 0U)
-    {
-        vecSrc = vld2q(pSrc);  
-        pSrc += 16;
-
-        acc0V = vdupq_n_s32(0);
-        acc1V = vdupq_n_s32(0);
-
-        prod0 = vmullbq_int_s16(vecSrc.val[0], vecSrc.val[0]);
-        acc0V = vqaddq_s32(acc0V,prod0);
-
-        prod0 = vmullbq_int_s16(vecSrc.val[1], vecSrc.val[1]);
-        acc0V = vqaddq_s32(acc0V,prod0);
-
-
-        prod1 = vmulltq_int_s16(vecSrc.val[0], vecSrc.val[0]);
-        acc1V = vqaddq_s32(acc1V,prod1);
-
-        prod1 = vmulltq_int_s16(vecSrc.val[1], vecSrc.val[1]);
-        acc1V = vqaddq_s32(acc1V,prod1);
-
-       
-
-        acc0V = vshrq(acc0V, 1);
-        acc1V = vshrq(acc1V, 1);
-
-        acc0V = FAST_VSQRT_Q31(acc0V);
-        acc1V = FAST_VSQRT_Q31(acc1V);
-
-        resV = vdupq_n_s16(0);
-        resV = vqshrnbq_n_s32(resV,acc0V,16);
-        resV = vqshrntq_n_s32(resV,acc1V,16);
-
-        vst1q(pDst, resV); 
-        pDst += 8;
-        /*
-         * Decrement the blockSize loop counter
-         */
-        blkCnt--;
-    }
-
-    /*
-     * tail
-     */
-    blkCnt = blockSize & 7;
-
-    while (blkCnt > 0U)
-    {
-      /* C[0] = sqrt(A[0] * A[0] + A[1] * A[1]) */
-  
-      in = read_q15x2_ia ((q15_t **) &pSrc);
-      acc0 = __SMUAD(in, in);
-  
-      /* store result in 2.14 format in destination buffer. */
-      arm_sqrt_q31(acc0  >> 1 , &res);
-      *pDst++ = res >> 16;
-  
-  
-      /* Decrement loop counter */
-      blkCnt--;
-    }
-}
-
-#else
-void arm_cmplx_mag_q15(
-  const q15_t * pSrc,
-        q15_t * pDst,
-        uint32_t numSamples)
-{
-        q31_t res; /* temporary result */
         uint32_t blkCnt;                               /* Loop counter */
 
 #if defined (ARM_MATH_DSP)
@@ -167,26 +73,22 @@ void arm_cmplx_mag_q15(
     /* C[0] = sqrt(A[0] * A[0] + A[1] * A[1]) */
 
 #if defined (ARM_MATH_DSP)
-    in = read_q15x2_ia (&pSrc);
+    in = read_q15x2_ia ((q15_t **) &pSrc);
     acc0 = __SMUAD(in, in);
     /* store result in 2.14 format in destination buffer. */
-    arm_sqrt_q31(acc0  >> 1 , &res);
-    *pDst++ = res >> 16;
+    arm_sqrt_q15((q15_t) (acc0 >> 17), pDst++);
 
-    in = read_q15x2_ia (&pSrc);
+    in = read_q15x2_ia ((q15_t **) &pSrc);
     acc0 = __SMUAD(in, in);
-    arm_sqrt_q31(acc0  >> 1 , &res);
-    *pDst++ = res >> 16;
+    arm_sqrt_q15((q15_t) (acc0 >> 17), pDst++);
 
-    in = read_q15x2_ia (&pSrc);
+    in = read_q15x2_ia ((q15_t **) &pSrc);
     acc0 = __SMUAD(in, in);
-    arm_sqrt_q31(acc0  >> 1 , &res);
-    *pDst++ = res >> 16;
+    arm_sqrt_q15((q15_t) (acc0 >> 17), pDst++);
 
-    in = read_q15x2_ia (&pSrc);
+    in = read_q15x2_ia ((q15_t **) &pSrc);
     acc0 = __SMUAD(in, in);
-    arm_sqrt_q31(acc0  >> 1 , &res);
-    *pDst++ = res >> 16;
+    arm_sqrt_q15((q15_t) (acc0 >> 17), pDst++);
 #else
     real = *pSrc++;
     imag = *pSrc++;
@@ -194,29 +96,25 @@ void arm_cmplx_mag_q15(
     acc1 = ((q31_t) imag * imag);
 
     /* store result in 2.14 format in destination buffer. */
-    arm_sqrt_q31((acc0 + acc1) >> 1 , &res);
-    *pDst++ = res >> 16;
+    arm_sqrt_q15((q15_t) (((q63_t) acc0 + acc1) >> 17), pDst++);
 
     real = *pSrc++;
     imag = *pSrc++;
     acc0 = ((q31_t) real * real);
     acc1 = ((q31_t) imag * imag);
-    arm_sqrt_q31((acc0 + acc1) >> 1 , &res);
-    *pDst++ = res >> 16;
+    arm_sqrt_q15((q15_t) (((q63_t) acc0 + acc1) >> 17), pDst++);
 
     real = *pSrc++;
     imag = *pSrc++;
     acc0 = ((q31_t) real * real);
     acc1 = ((q31_t) imag * imag);
-    arm_sqrt_q31((acc0 + acc1) >> 1 , &res);
-    *pDst++ = res >> 16;
+    arm_sqrt_q15((q15_t) (((q63_t) acc0 + acc1) >> 17), pDst++);
 
     real = *pSrc++;
     imag = *pSrc++;
     acc0 = ((q31_t) real * real);
     acc1 = ((q31_t) imag * imag);
-    arm_sqrt_q31((acc0 + acc1) >> 1 , &res);
-    *pDst++ = res >> 16;
+    arm_sqrt_q15((q15_t) (((q63_t) acc0 + acc1) >> 17), pDst++);
 #endif /* #if defined (ARM_MATH_DSP) */
 
     /* Decrement loop counter */
@@ -238,12 +136,11 @@ void arm_cmplx_mag_q15(
     /* C[0] = sqrt(A[0] * A[0] + A[1] * A[1]) */
 
 #if defined (ARM_MATH_DSP)
-    in = read_q15x2_ia (&pSrc);
+    in = read_q15x2_ia ((q15_t **) &pSrc);
     acc0 = __SMUAD(in, in);
 
     /* store result in 2.14 format in destination buffer. */
-    arm_sqrt_q31(acc0  >> 1 , &res);
-    *pDst++ = res >> 16;
+    arm_sqrt_q15((q15_t) (acc0 >> 17), pDst++);
 #else
     real = *pSrc++;
     imag = *pSrc++;
@@ -251,9 +148,7 @@ void arm_cmplx_mag_q15(
     acc1 = ((q31_t) imag * imag);
 
     /* store result in 2.14 format in destination buffer. */
-    arm_sqrt_q31((acc0 + acc1) >> 1 , &res);
-    *pDst++ = res >> 16;
- 
+    arm_sqrt_q15((q15_t) (((q63_t) acc0 + acc1) >> 17), pDst++);
 #endif
 
     /* Decrement loop counter */
@@ -261,7 +156,6 @@ void arm_cmplx_mag_q15(
   }
 
 }
-#endif /* defined(ARM_MATH_MVEI) */
 
 /**
   @} end of cmplx_mag group

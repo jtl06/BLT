@@ -3,13 +3,13 @@
  * Title:        arm_copy_q15.c
  * Description:  Copies the elements of a Q15 vector
  *
- * $Date:        23 April 2021
- * $Revision:    V1.9.0
+ * $Date:        18. March 2019
+ * $Revision:    V1.6.0
  *
- * Target Processor: Cortex-M and Cortex-A cores
+ * Target Processor: Cortex-M cores
  * -------------------------------------------------------------------- */
 /*
- * Copyright (C) 2010-2021 ARM Limited or its affiliates. All rights reserved.
+ * Copyright (C) 2010-2019 ARM Limited or its affiliates. All rights reserved.
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,7 +26,7 @@
  * limitations under the License.
  */
 
-#include "dsp/support_functions.h"
+#include "arm_math.h"
 
 /**
   @ingroup groupSupport
@@ -44,40 +44,7 @@
   @param[in]     blockSize  number of samples in each vector
   @return        none
  */
-#if defined(ARM_MATH_MVEI) && !defined(ARM_MATH_AUTOVECTORIZE)
-void arm_copy_q15(
-  const q15_t * pSrc,
-        q15_t * pDst,
-        uint32_t blockSize)
-{
-  uint32_t blkCnt;
 
-  blkCnt = blockSize >> 3;
-  while (blkCnt > 0U)
-  {
-      vstrhq_s16(pDst,vldrhq_s16(pSrc));
-      /*
-       * Decrement the blockSize loop counter
-       * Advance vector source and destination pointers
-       */
-      pSrc += 8;
-      pDst += 8;
-      blkCnt --;
-  }
-
-  blkCnt = blockSize & 7;
-  while (blkCnt > 0U)
-  {
-    /* C = A */
-
-    /* Copy and store result in destination buffer */
-    *pDst++ = *pSrc++;
-
-    /* Decrement loop counter */
-    blkCnt--;
-  }
-}
-#else
 void arm_copy_q15(
   const q15_t * pSrc,
         q15_t * pDst,
@@ -95,8 +62,8 @@ void arm_copy_q15(
     /* C = A */
 
     /* read 2 times 2 samples at a time */
-    write_q15x2_ia (&pDst, read_q15x2_ia (&pSrc));
-    write_q15x2_ia (&pDst, read_q15x2_ia (&pSrc));
+    write_q15x2_ia (&pDst, read_q15x2_ia ((q15_t **) &pSrc));
+    write_q15x2_ia (&pDst, read_q15x2_ia ((q15_t **) &pSrc));
 
     /* Decrement loop counter */
     blkCnt--;
@@ -123,7 +90,6 @@ void arm_copy_q15(
     blkCnt--;
   }
 }
-#endif /* defined(ARM_MATH_MVEI) */
 
 /**
   @} end of BasicCopy group

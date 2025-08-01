@@ -2,11 +2,11 @@
  * @file     system_ARMCM7.c
  * @brief    CMSIS Device System Source File for
  *           ARMCM7 Device
- * @version  V1.0.1
- * @date     15. November 2019
+ * @version  V5.3.1
+ * @date     09. July 2018
  ******************************************************************************/
 /*
- * Copyright (c) 2009-2019 Arm Limited. All rights reserved.
+ * Copyright (c) 2009-2018 Arm Limited. All rights reserved.
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -40,11 +40,13 @@
 
 #define  SYSTEM_CLOCK    (XTAL / 2U)
 
-/*----------------------------------------------------------------------------
-  Exception / Interrupt Vector table
- *----------------------------------------------------------------------------*/
-extern const VECTOR_TABLE_Type __VECTOR_TABLE[240];
 
+/*----------------------------------------------------------------------------
+  Externals
+ *----------------------------------------------------------------------------*/
+#if defined (__VTOR_PRESENT) && (__VTOR_PRESENT == 1U)
+  extern uint32_t __Vectors;
+#endif
 
 /*----------------------------------------------------------------------------
   System Core Clock Variable
@@ -67,7 +69,7 @@ void SystemInit (void)
 {
 
 #if defined (__VTOR_PRESENT) && (__VTOR_PRESENT == 1U)
-  SCB->VTOR = (uint32_t) &(__VECTOR_TABLE[0]);
+  SCB->VTOR = (uint32_t) &__Vectors;
 #endif
 
 #if defined (__FPU_USED) && (__FPU_USED == 1U)

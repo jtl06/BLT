@@ -3,13 +3,13 @@
  * Title:        arm_cfft_radix2_q15.c
  * Description:  Radix-2 Decimation in Frequency CFFT & CIFFT Fixed point processing function
  *
- * $Date:        23 April 2021
- * $Revision:    V1.9.0
+ * $Date:        18. March 2019
+ * $Revision:    V1.6.0
  *
- * Target Processor: Cortex-M and Cortex-A cores
+ * Target Processor: Cortex-M cores
  * -------------------------------------------------------------------- */
 /*
- * Copyright (C) 2010-2021 ARM Limited or its affiliates. All rights reserved.
+ * Copyright (C) 2010-2019 ARM Limited or its affiliates. All rights reserved.
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,7 +26,7 @@
  * limitations under the License.
  */
 
-#include "dsp/transform_functions.h"
+#include "arm_math.h"
 
 void arm_radix2_butterfly_q15(
         q15_t * pSrc,

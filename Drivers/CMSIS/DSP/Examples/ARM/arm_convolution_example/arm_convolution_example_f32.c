@@ -105,10 +105,6 @@
 #include "arm_math.h"
 #include "math_helper.h"
 
-#if defined(SEMIHOSTING)
-#include <stdio.h>
-#endif
-
 /* ----------------------------------------------------------------------
 * Defines each of the tests performed
 * ------------------------------------------------------------------- */
@@ -197,10 +193,6 @@ int32_t main(void)
   arm_status status;                           /* Status of the example */
   arm_cfft_radix4_instance_f32 cfft_instance;  /* CFFT Structure instance */
 
-#if defined(SEMIHOSTING)
-  printf("START\n");
-#endif
-
   /* CFFT Structure instance pointer */
   arm_cfft_radix4_instance_f32 *cfft_instance_ptr =
       (arm_cfft_radix4_instance_f32*) &cfft_instance;
@@ -231,7 +223,7 @@ int32_t main(void)
   status = arm_cfft_radix4_init_f32(cfft_instance_ptr, 64, 1, 1);
 
   /* Transform the multiplication output from frequency domain to time domain,
-     that gives the convolved output. */
+     that gives the convolved output  */
   arm_cfft_radix4_f32(cfft_instance_ptr, AxB);
 
   /* SNR Calculation */
@@ -239,25 +231,17 @@ int32_t main(void)
 
   /* Compare the SNR with threshold to test whether the
      computed output is matched with the reference output values. */
-  status = (snr <= SNR_THRESHOLD) ? ARM_MATH_TEST_FAILURE : ARM_MATH_SUCCESS;
-  
-  if (status != ARM_MATH_SUCCESS)
+  if ( snr > SNR_THRESHOLD)
   {
-#if defined (SEMIHOSTING)
-    printf("FAILURE\n");
-#else
-    while (1);                             /* main function does not return */
-#endif
-  }
-  else
-  {
-#if defined (SEMIHOSTING)
-    printf("SUCCESS\n");
-#else
-    while (1);                             /* main function does not return */
-#endif
+    status = ARM_MATH_SUCCESS;
   }
 
+  if ( status != ARM_MATH_SUCCESS)
+  {
+    while (1);
+  }
+
+  while (1);                             /* main function does not return */
 }
 
  /** \endlink */

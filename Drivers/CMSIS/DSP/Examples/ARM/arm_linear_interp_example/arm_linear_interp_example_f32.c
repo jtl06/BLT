@@ -1,8 +1,8 @@
 /* ----------------------------------------------------------------------
-* Copyright (C) 2010-2020 ARM Limited. All rights reserved.
+* Copyright (C) 2010-2012 ARM Limited. All rights reserved.
 *
-* $Date:         23. March 2020
-* $Revision:     V1.7.0
+* $Date:         17. January 2013
+* $Revision:     V1.4.0
 *
 * Project:       CMSIS DSP Library
 * Title:         arm_linear_interp_example_f32.c
@@ -10,7 +10,7 @@
 * Description:   Example code demonstrating usage of sin function
 *                and uses linear interpolation to get higher precision
 *
-* Target Processor: Cortex-M55/Cortex-M7/Cortex-M4/Cortex-M3/Cortex-M0
+* Target Processor: Cortex-M4/Cortex-M3
 *
 * Redistribution and use in source and binary forms, with or without
 * modification, are permitted provided that the following conditions
@@ -87,13 +87,9 @@
 #include "arm_math.h"
 #include "math_helper.h"
 
-#if defined(SEMIHOSTING)
-#include <stdio.h>
-#endif
-
 #define SNR_THRESHOLD           90
 #define TEST_LENGTH_SAMPLES     10
-#define XSPACING               (0.005f)
+#define XSPACING               (0.00005f)
 
 /* ----------------------------------------------------------------------
 * Test input data for F32 SIN function
@@ -136,7 +132,7 @@ float32_t testLinIntOutput[TEST_LENGTH_SAMPLES];
 /*------------------------------------------------------------------------------
 *  External table used for linear interpolation
 *------------------------------------------------------------------------------*/
-extern const float arm_linear_interep_table[1884];
+extern float arm_linear_interep_table[188495];
 
 /* ----------------------------------------------------------------------
 * Global Variables for caluclating SNR's for Method1 & Method 2
@@ -152,7 +148,7 @@ int32_t main(void)
   uint32_t i;
   arm_status status;
 
-  arm_linear_interp_instance_f32 S = {1884, -3.141592653589793238, XSPACING, (float*)&arm_linear_interep_table[0]};
+  arm_linear_interp_instance_f32 S = {188495, -3.141592653589793238, XSPACING, &arm_linear_interep_table[0]};
 
   /*------------------------------------------------------------------------------
   *  Method 1: Test out Calculated from Cubic Interpolation
@@ -184,25 +180,25 @@ int32_t main(void)
   /*------------------------------------------------------------------------------
   *            Initialise status depending on SNR calculations
   *------------------------------------------------------------------------------*/
-  status = (snr2 <= snr1) ? ARM_MATH_TEST_FAILURE : ARM_MATH_SUCCESS;
-
-  if (status != ARM_MATH_SUCCESS)
+  if ( snr2 > snr1)
   {
-#if defined (SEMIHOSTING)
-    printf("FAILURE\n");
-#else
-    while (1);                             /* main function does not return */
-#endif
+    status = ARM_MATH_SUCCESS;
   }
   else
   {
-#if defined (SEMIHOSTING)
-    printf("SUCCESS\n");
-#else
-    while (1);                             /* main function does not return */
-#endif
+    status = ARM_MATH_TEST_FAILURE;
   }
 
+  /* ----------------------------------------------------------------------
+  ** Loop here if the signals fail the PASS check.
+  ** This denotes a test failure
+  ** ------------------------------------------------------------------- */
+  if ( status != ARM_MATH_SUCCESS)
+  {
+    while (1);
+  }
+
+  while (1);                             /* main function does not return */
 }
 
  /** \endlink */

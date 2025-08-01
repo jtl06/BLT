@@ -3,13 +3,13 @@
  * Title:        arm_conv_partial_q7.c
  * Description:  Partial convolution of Q7 sequences
  *
- * $Date:        23 April 2021
- * $Revision:    V1.9.0
+ * $Date:        18. March 2019
+ * $Revision:    V1.6.0
  *
- * Target Processor: Cortex-M and Cortex-A cores
+ * Target Processor: Cortex-M cores
  * -------------------------------------------------------------------- */
 /*
- * Copyright (C) 2010-2021 ARM Limited or its affiliates. All rights reserved.
+ * Copyright (C) 2010-2019 ARM Limited or its affiliates. All rights reserved.
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,7 +26,7 @@
  * limitations under the License.
  */
 
-#include "dsp/filtering_functions.h"
+#include "arm_math.h"
 
 /**
   @ingroup groupFilters
@@ -64,7 +64,8 @@ arm_status arm_conv_partial_q7(
         uint32_t numPoints)
 {
 
-#if defined(ARM_MATH_DSP)
+#if (1)
+//#if !defined(ARM_MATH_CM0_FAMILY)
 
   const q7_t *pIn1;                                    /* InputA pointer */
   const q7_t *pIn2;                                    /* InputB pointer */
@@ -123,7 +124,7 @@ arm_status arm_conv_partial_q7(
     blockSize3 = ((int32_t)check > (int32_t)srcALen) ? (int32_t)check - (int32_t)srcALen : 0;
     blockSize3 = ((int32_t)firstIndex > (int32_t)srcALen - 1) ? blockSize3 - (int32_t)firstIndex + (int32_t)srcALen : blockSize3;
     blockSize1 = ((int32_t) srcBLen - 1) - (int32_t) firstIndex;
-    blockSize1 = (blockSize1 > 0) ? ((check > (srcBLen - 1U)) ? blockSize1 : (int32_t)numPoints) : 0;
+    blockSize1 = (blockSize1 > 0) ? ((check > (srcBLen - 1U)) ? blockSize1 : (int32_t) numPoints) : 0;
     blockSize2 = (int32_t) check - ((blockSize3 + blockSize1) + (int32_t) firstIndex);
     blockSize2 = (blockSize2 > 0) ? blockSize2 : 0;
 
@@ -168,7 +169,7 @@ arm_status arm_conv_partial_q7(
      * ----------------------*/
 
     /* The first stage starts here */
-    while (blockSize1 > 0)
+    while (blockSize1 > 0U)
     {
       /* Accumulator is made zero for every iteration */
       sum = 0;
@@ -602,14 +603,7 @@ arm_status arm_conv_partial_q7(
     count = srcBLen - 1U;
 
     /* Working pointer of inputA */
-    if (firstIndex > srcALen)
-    {
-       pSrc1 = (pIn1 + firstIndex) - (srcBLen - 1U);
-    }
-    else
-    {
-       pSrc1 = (pIn1 + srcALen) - (srcBLen - 1U);
-    }
+    pSrc1 = (pIn1 + srcALen) - (srcBLen - 1U);
     px = pSrc1;
 
     /* Working pointer of inputB */
@@ -620,7 +614,7 @@ arm_status arm_conv_partial_q7(
      * Stage3 process
      * ------------------*/
 
-    while (blockSize3 > 0)
+    while (blockSize3 > 0U)
     {
       /* Accumulator is made zero for every iteration */
       sum = 0;

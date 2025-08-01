@@ -3,13 +3,13 @@
  * Title:        arm_biquad_cascade_df2T_init_f64.c
  * Description:  Initialization function for floating-point transposed direct form II Biquad cascade filter
  *
- * $Date:        23 April 2021
- * $Revision:    V1.9.0
+ * $Date:        18. March 2019
+ * $Revision:    V1.6.0
  *
- * Target Processor: Cortex-M and Cortex-A cores
+ * Target Processor: Cortex-M cores
  * -------------------------------------------------------------------- */
 /*
- * Copyright (C) 2010-2021 ARM Limited or its affiliates. All rights reserved.
+ * Copyright (C) 2010-2019 ARM Limited or its affiliates. All rights reserved.
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,7 +26,7 @@
  * limitations under the License.
  */
 
-#include "dsp/filtering_functions.h"
+#include "arm_math.h"
 
 /**
   @ingroup groupFilters
@@ -65,7 +65,7 @@
 void arm_biquad_cascade_df2T_init_f64(
         arm_biquad_cascade_df2T_instance_f64 * S,
         uint8_t numStages,
-        const float64_t * pCoeffs,
+        float64_t * pCoeffs,
         float64_t * pState)
 {
   /* Assign filter stages */

@@ -3,13 +3,13 @@
  * Title:        arm_shift_q7.c
  * Description:  Processing function for the Q7 Shifting
  *
- * $Date:        23 April 2021
- * $Revision:    V1.9.0
+ * $Date:        18. March 2019
+ * $Revision:    V1.6.0
  *
- * Target Processor: Cortex-M and Cortex-A cores
+ * Target Processor: Cortex-M cores
  * -------------------------------------------------------------------- */
 /*
- * Copyright (C) 2010-2021 ARM Limited or its affiliates. All rights reserved.
+ * Copyright (C) 2010-2019 ARM Limited or its affiliates. All rights reserved.
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,7 +26,7 @@
  * limitations under the License.
  */
 
-#include "dsp/basic_math_functions.h"
+#include "arm_math.h"
 
 /**
   @ingroup groupMath
@@ -52,55 +52,6 @@
                    Results outside of the allowable Q7 range [0x80 0x7F] are saturated.
  */
 
-#if defined(ARM_MATH_MVEI) && !defined(ARM_MATH_AUTOVECTORIZE)
-
-#include "arm_helium_utils.h"
-
-void arm_shift_q7(
-    const q7_t * pSrc,
-    int8_t shiftBits,
-    q7_t * pDst,
-    uint32_t blockSize)
-{
-    uint32_t  blkCnt;           /* loop counters */
-    q7x16_t vecSrc;
-    q7x16_t vecDst;
-
-    /* Compute 16 outputs at a time */
-    blkCnt = blockSize >> 4;
-    while (blkCnt > 0U)
-    {
-        /*
-         * C = A (>> or <<) shiftBits
-         * Shift the input and then store the result in the destination buffer.
-         */
-        vecSrc = vld1q(pSrc);
-        vecDst = vqshlq_r(vecSrc, shiftBits);
-        vst1q(pDst, vecDst);
-        /*
-         * Decrement the blockSize loop counter
-         */
-        blkCnt--;
-        /*
-         * advance vector source and destination pointers
-         */
-        pSrc += 16;
-        pDst += 16;
-    }
-    /*
-     * tail
-     */
-    blkCnt = blockSize & 0xF;
-    if (blkCnt > 0U)
-    {
-        mve_pred16_t p0 = vctp8q(blkCnt);
-        vecSrc = vld1q(pSrc);
-        vecDst = vqshlq_r(vecSrc, shiftBits);
-        vstrbq_p(pDst, vecDst, p0);
-    }
-}
-
-#else
 void arm_shift_q7(
   const q7_t * pSrc,
         int8_t shiftBits,
@@ -134,10 +85,10 @@ void arm_shift_q7(
       in4 = *pSrc++;
 
     /* Pack and store result in destination buffer (in single write) */
-      write_q7x4_ia (&pDst, __PACKq7(__SSAT(((q15_t) in1 << shiftBits), 8),
-                                     __SSAT(((q15_t) in2 << shiftBits), 8),
-                                     __SSAT(((q15_t) in3 << shiftBits), 8),
-                                     __SSAT(((q15_t) in4 << shiftBits), 8) ));
+      write_q7x4_ia (&pDst, __PACKq7(__SSAT((in1 << shiftBits), 8),
+                                     __SSAT((in2 << shiftBits), 8),
+                                     __SSAT((in3 << shiftBits), 8),
+                                     __SSAT((in4 << shiftBits), 8) ));
 #else
       *pDst++ = (q7_t) __SSAT(((q15_t) *pSrc++ << shiftBits), 8);
       *pDst++ = (q7_t) __SSAT(((q15_t) *pSrc++ << shiftBits), 8);
@@ -218,7 +169,6 @@ void arm_shift_q7(
   }
 
 }
-#endif /* defined(ARM_MATH_MVEI) */
 
 /**
   @} end of BasicShift group

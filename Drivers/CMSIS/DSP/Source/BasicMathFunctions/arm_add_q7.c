@@ -1,5 +1,15 @@
+/* ----------------------------------------------------------------------
+ * Project:      CMSIS DSP Library
+ * Title:        arm_add_q7.c
+ * Description:  Q7 vector addition
+ *
+ * $Date:        18. March 2019
+ * $Revision:    V1.6.0
+ *
+ * Target Processor: Cortex-M cores
+ * -------------------------------------------------------------------- */
 /*
- * Copyright (C) 2010-2021 ARM Limited or its affiliates. All rights reserved.
+ * Copyright (C) 2010-2019 ARM Limited or its affiliates. All rights reserved.
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -16,18 +26,7 @@
  * limitations under the License.
  */
 
-/* ----------------------------------------------------------------------
- * Project:      CMSIS DSP Library
- * Title:        arm_add_q7.c
- * Description:  Q7 vector addition
- *
- * $Date:        23 April 2021
- * $Revision:    V1.9.0
- *
- * Target Processor: Cortex-M and Cortex-A cores
- * -------------------------------------------------------------------- */
-
-#include "dsp/basic_math_functions.h"
+#include "arm_math.h"
 
 /**
   @ingroup groupMath
@@ -51,55 +50,6 @@
                    Results outside of the allowable Q7 range [0x80 0x7F] are saturated.
  */
 
-#if defined(ARM_MATH_MVEI) && !defined(ARM_MATH_AUTOVECTORIZE)
-
-#include "arm_helium_utils.h"
-
-void arm_add_q7(
-    const q7_t * pSrcA,
-    const q7_t * pSrcB,
-    q7_t * pDst,
-    uint32_t blockSize)
-{
-    uint32_t  blkCnt;           /* loop counters */
-    q7x16_t vecA;
-    q7x16_t vecB;
-
-    /* Compute 16 outputs at a time */
-    blkCnt = blockSize >> 4;
-    while (blkCnt > 0U)
-    {
-        /*
-         * C = A + B
-         * Add and then store the results in the destination buffer.
-         */
-        vecA = vld1q(pSrcA);
-        vecB = vld1q(pSrcB);
-        vst1q(pDst, vqaddq(vecA, vecB));
-        /*
-         * Decrement the blockSize loop counter
-         */
-        blkCnt--;
-        /*
-         * advance vector source and destination pointers
-         */
-        pSrcA  += 16;
-        pSrcB  += 16;
-        pDst   += 16;
-    }
-    /*
-     * tail
-     */
-    blkCnt = blockSize & 0xF;
-    if (blkCnt > 0U)
-    {
-        mve_pred16_t p0 = vctp8q(blkCnt);
-        vecA = vld1q(pSrcA);
-        vecB = vld1q(pSrcB);
-        vstrbq_p(pDst, vqaddq(vecA, vecB), p0);
-    }
-}
-#else
 void arm_add_q7(
   const q7_t * pSrcA,
   const q7_t * pSrcB,
@@ -119,7 +69,7 @@ void arm_add_q7(
 
 #if defined (ARM_MATH_DSP)
     /* Add and store result in destination buffer (4 samples at a time). */
-    write_q7x4_ia (&pDst, __QADD8 (read_q7x4_ia (&pSrcA), read_q7x4_ia (&pSrcB)));
+    write_q7x4_ia (&pDst, __QADD8 (read_q7x4_ia ((q7_t **) &pSrcA), read_q7x4_ia ((q7_t **) &pSrcB)));
 #else
     *pDst++ = (q7_t) __SSAT ((q15_t) *pSrcA++ + *pSrcB++, 8);
     *pDst++ = (q7_t) __SSAT ((q15_t) *pSrcA++ + *pSrcB++, 8);
@@ -153,7 +103,7 @@ void arm_add_q7(
   }
 
 }
-#endif /* defined(ARM_MATH_MVEI) */
+
 /**
   @} end of BasicAdd group
  */

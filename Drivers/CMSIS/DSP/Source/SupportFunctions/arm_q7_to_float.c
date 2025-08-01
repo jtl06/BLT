@@ -3,13 +3,13 @@
  * Title:        arm_q7_to_float.c
  * Description:  Converts the elements of the Q7 vector to floating-point vector
  *
- * $Date:        23 April 2021
- * $Revision:    V1.9.0
+ * $Date:        18. March 2019
+ * $Revision:    V1.6.0
  *
- * Target Processor: Cortex-M and Cortex-A cores
+ * Target Processor: Cortex-M cores
  * -------------------------------------------------------------------- */
 /*
- * Copyright (C) 2010-2021 ARM Limited or its affiliates. All rights reserved.
+ * Copyright (C) 2010-2019 ARM Limited or its affiliates. All rights reserved.
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,14 +26,14 @@
  * limitations under the License.
  */
 
-#include "dsp/support_functions.h"
+#include "arm_math.h"
 
 /**
   @ingroup groupSupport
  */
 
 /**
- * @defgroup q7_to_x  Convert 8-bit fixed point value
+ * @defgroup q7_to_x  Convert 8-bit Integer value
  */
 
 /**
@@ -54,45 +54,7 @@
       pDst[n] = (float32_t) pSrc[n] / 128;   0 <= n < blockSize.
   </pre>
  */
-#if defined(ARM_MATH_MVEF) && !defined(ARM_MATH_AUTOVECTORIZE)
-void arm_q7_to_float(
-  const q7_t * pSrc,
-  float32_t * pDst,
-  uint32_t blockSize)
-{
-    uint32_t  blkCnt;           /* loop counters */
-    q7x16_t vecDst;
-    q7_t const *pSrcVec;
 
-    pSrcVec = (q7_t const *) pSrc;
-    blkCnt = blockSize >> 2;
-    while (blkCnt > 0U)
-    {
-        /* C = (float32_t) A / 32768 */
-        /* convert from q7 to float and then store the results in the destination buffer */
-        vecDst = vldrbq_s32(pSrcVec);    
-        pSrcVec += 4;
-        vstrwq(pDst, vcvtq_n_f32_s32((int32x4_t)vecDst, 7));   
-        pDst += 4;
-        /*
-         * Decrement the blockSize loop counter
-         */
-        blkCnt--;
-    }
-
-  blkCnt = blockSize & 3;
-  while (blkCnt > 0U)
-  {
-    /* C = (float32_t) A / 128 */
-
-    /* Convert from q7 to float and store result in destination buffer */
-    *pDst++ = ((float32_t) * pSrcVec++ / 128.0f);
-
-    /* Decrement loop counter */
-    blkCnt--;
-  }
-}
-#else
 #if defined(ARM_MATH_NEON)
 void arm_q7_to_float(
   const q7_t * pSrc,
@@ -211,7 +173,6 @@ void arm_q7_to_float(
 
 }
 #endif /* #if defined(ARM_MATH_NEON) */
-#endif /* defined(ARM_MATH_MVEF) && !defined(ARM_MATH_AUTOVECTORIZE) */
 
 /**
   @} end of q7_to_x group

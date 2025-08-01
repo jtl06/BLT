@@ -3,13 +3,13 @@
  * Title:        arm_power_f32.c
  * Description:  Sum of the squares of the elements of a floating-point vector
  *
- * $Date:        23 April 2021
- * $Revision:    V1.9.0
+ * $Date:        18. March 2019
+ * $Revision:    V1.6.0
  *
- * Target Processor: Cortex-M and Cortex-A cores
+ * Target Processor: Cortex-M cores
  * -------------------------------------------------------------------- */
 /*
- * Copyright (C) 2010-2021 ARM Limited or its affiliates. All rights reserved.
+ * Copyright (C) 2010-2019 ARM Limited or its affiliates. All rights reserved.
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -26,7 +26,7 @@
  * limitations under the License.
  */
 
-#include "dsp/statistics_functions.h"
+#include "arm_math.h"
 
 /**
   @ingroup groupStats
@@ -43,10 +43,6 @@
   </pre>
 
   There are separate functions for floating point, Q31, Q15, and Q7 data types.
-
-  Since the result is not divided by the length, those functions are in fact computing
-  something which is more an energy than a power.
-
  */
 
 /**
@@ -61,56 +57,7 @@
   @param[out]    pResult    sum of the squares value returned here
   @return        none
  */
-#if defined(ARM_MATH_MVEF) && !defined(ARM_MATH_AUTOVECTORIZE)
-
-#include "arm_helium_utils.h"
-
-void arm_power_f32(
-  const float32_t * pSrc,
-  uint32_t blockSize,
-  float32_t * pResult)
-{
-    uint32_t        blkCnt;     /* loop counters */
-    f32x4_t         vecSrc;
-    f32x4_t         sumVec = vdupq_n_f32(0.0f);
-    float32_t       sum = 0.0f;
-    float32_t in;
-
-    /* Compute 4 outputs at a time */
-    blkCnt = blockSize >> 2U;
-    while (blkCnt > 0U)
-    {
-        vecSrc = vldrwq_f32(pSrc);
-        /*
-         * sum lanes
-         */
-        sumVec = vfmaq(sumVec, vecSrc, vecSrc);
-
-        blkCnt --;
-        pSrc += 4;
-    }
-    sum = vecAddAcrossF32Mve(sumVec);
-
-    /*
-     * tail
-     */
-    blkCnt = blockSize & 0x3;
-    while (blkCnt > 0U)
-    {
-      /* C = A[0] * A[0] + A[1] * A[1] + ... + A[blockSize-1] * A[blockSize-1] */
-  
-      /* Compute Power and store result in a temporary variable, sum. */
-      in = *pSrc++;
-      sum += in * in;
-  
-      /* Decrement loop counter */
-      blkCnt--;
-    }
-
-    *pResult = sum;
-}
-#else
-#if defined(ARM_MATH_NEON) && !defined(ARM_MATH_AUTOVECTORIZE)
+#if defined(ARM_MATH_NEON)
 void arm_power_f32(
   const float32_t * pSrc,
   uint32_t blockSize,
@@ -140,7 +87,7 @@ void arm_power_f32(
     blkCnt--;
   }
   sumV2 = vpadd_f32(vget_low_f32(sumV),vget_high_f32(sumV));
-  sum = vget_lane_f32(sumV2, 0) + vget_lane_f32(sumV2, 1);
+  sum = sumV2[0] + sumV2[1];
 
   /* If the blockSize is not a multiple of 4, compute any remaining output samples here.
    ** No loop unrolling is used. */
@@ -170,7 +117,7 @@ void arm_power_f32(
         float32_t sum = 0.0f;                          /* Temporary result storage */
         float32_t in;                                  /* Temporary variable to store input value */
 
-#if defined (ARM_MATH_LOOPUNROLL) && !defined(ARM_MATH_AUTOVECTORIZE)
+#if defined (ARM_MATH_LOOPUNROLL)
 
   /* Loop unrolling: Compute 4 outputs at a time */
   blkCnt = blockSize >> 2U;
@@ -222,7 +169,6 @@ void arm_power_f32(
   *pResult = sum;
 }
 #endif /* #if defined(ARM_MATH_NEON) */
-#endif /* defined(ARM_MATH_MVEF) && !defined(ARM_MATH_AUTOVECTORIZE) */
 
 /**
   @} end of power group
