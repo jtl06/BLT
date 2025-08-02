@@ -23,11 +23,17 @@
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+typedef enum
+{
+  MODE_LATENCY_TEST,
+  MODE_CALIBRATION
+} OperatingMode;
 
 /* USER CODE END PTD */
 
@@ -42,10 +48,21 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+ADC_HandleTypeDef hadc1;
+
 UART_HandleTypeDef hlpuart1;
 
+TIM_HandleTypeDef htim2;
+
 /* USER CODE BEGIN PV */
-volatile bool g_interrupt_flag = false;
+volatile OperatingMode g_current_mode = MODE_LATENCY_TEST;
+volatile bool g_mic_triggered = false;
+volatile bool g_is_timing = false;
+volatile uint32_t g_start_time = 0;
+volatile uint32_t g_end_time = 0;
+
+volatile uint32_t g_last_trigger_time = 0;
+const uint32_t DEBOUNCE_US = 200000; // 200ms debounce window in microseconds
 
 /* USER CODE END PV */
 
@@ -53,6 +70,8 @@ volatile bool g_interrupt_flag = false;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_LPUART1_UART_Init(void);
+static void MX_ADC1_Init(void);
+static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -97,28 +116,63 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_LPUART1_UART_Init();
+  MX_ADC1_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
   printf("initialized\r\n");
-
+  HAL_TIM_Base_Start(&htim2); // <-- ADD THIS LINE
+  
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-/* Infinite loop */
-  if (g_interrupt_flag)
+  if (g_current_mode == MODE_CALIBRATION)
   {
-    // Reset the flag immediately
-    g_interrupt_flag = false;
-    printf("Interrupt Detected!\r\n");
+    // --- CALIBRATION MODE ---
+    uint32_t sensorValue = 0;
+    HAL_ADC_Start(&hadc1);
+    if (HAL_ADC_PollForConversion(&hadc1, 100) == HAL_OK)
+    {
+      sensorValue = HAL_ADC_GetValue(&hadc1);
+    }
+    HAL_ADC_Stop(&hadc1);
+    
+    // Continuously print the light sensor value
+    printf("Calibration - Light Sensor: %lu\r\n", sensorValue);
+    HAL_Delay(100);
   }
+  else
+  {
+    // --- LATENCY TEST MODE ---
+    if (g_current_mode == MODE_LATENCY_TEST)
+  {
+    if (g_is_timing)
+    {
+      uint32_t sensorValue = 0;
+      HAL_ADC_Start(&hadc1);
+      if (HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK) {
+        sensorValue = HAL_ADC_GetValue(&hadc1);
+      }
+      HAL_ADC_Stop(&hadc1);
 
-  // Your LED blink code can run here without being blocked
-  HAL_GPIO_TogglePin(USER_LED_GPIO_Port, USER_LED_Pin);
-  HAL_Delay(500);
+      if (sensorValue > 100)
+      {
+        g_end_time = __HAL_TIM_GET_COUNTER(&htim2);
+        g_is_timing = false;
 
+        uint32_t latency_us = g_end_time - g_start_time;
+        printf("Latency: %lu us\r\n", latency_us);
 
+        // IMPORTANT: Re-enable the interrupt to arm for the next measurement.
+        // Add a small delay to allow sound to die down before re-arming.
+        HAL_Delay(200);
+        HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+      }
+    }
+  }
+  }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -164,6 +218,74 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief ADC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC1_Init(void)
+{
+
+  /* USER CODE BEGIN ADC1_Init 0 */
+
+  /* USER CODE END ADC1_Init 0 */
+
+  ADC_MultiModeTypeDef multimode = {0};
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC1_Init 1 */
+
+  /* USER CODE END ADC1_Init 1 */
+
+  /** Common config
+  */
+  hadc1.Instance = ADC1;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV2;
+  hadc1.Init.Resolution = ADC_RESOLUTION_12B;
+  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc1.Init.GainCompensation = 0;
+  hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
+  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  hadc1.Init.LowPowerAutoWait = DISABLE;
+  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.NbrOfConversion = 1;
+  hadc1.Init.DiscontinuousConvMode = DISABLE;
+  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc1.Init.DMAContinuousRequests = DISABLE;
+  hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
+  hadc1.Init.OversamplingMode = DISABLE;
+  if (HAL_ADC_Init(&hadc1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure the ADC multi-mode
+  */
+  multimode.Mode = ADC_MODE_INDEPENDENT;
+  if (HAL_ADCEx_MultiModeConfigChannel(&hadc1, &multimode) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_1;
+  sConfig.Rank = ADC_REGULAR_RANK_1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_2CYCLES_5;
+  sConfig.SingleDiff = ADC_SINGLE_ENDED;
+  sConfig.OffsetNumber = ADC_OFFSET_NONE;
+  sConfig.Offset = 0;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC1_Init 2 */
+
+  /* USER CODE END ADC1_Init 2 */
+
 }
 
 /**
@@ -214,6 +336,51 @@ static void MX_LPUART1_UART_Init(void)
 }
 
 /**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 15;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 4294967295;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -226,10 +393,17 @@ static void MX_GPIO_Init(void)
   /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(USER_LED_GPIO_Port, USER_LED_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : USER_BUTTON_Pin */
+  GPIO_InitStruct.Pin = USER_BUTTON_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  HAL_GPIO_Init(USER_BUTTON_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : USER_LED_Pin */
   GPIO_InitStruct.Pin = USER_LED_Pin;
@@ -248,6 +422,9 @@ static void MX_GPIO_Init(void)
   HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
 
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
   /* USER CODE END MX_GPIO_Init_2 */
@@ -256,10 +433,29 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-  // Make sure your pin label is correct here (e.g., MIC1_Pin or MOUSE1_Pin)
   if (GPIO_Pin == MIC1_Pin)
   {
-    g_interrupt_flag = true;
+    uint32_t now = __HAL_TIM_GET_COUNTER(&htim2);
+
+    // Only accept a trigger if enough time has passed since the last one
+    if ((now - g_last_trigger_time) > DEBOUNCE_US)
+    {
+      g_last_trigger_time = now; // Update the time of the last valid trigger
+      g_start_time = now;      // This is our real start time
+      g_is_timing = true;
+    }
+  }
+  else if (GPIO_Pin == USER_BUTTON_Pin)
+  {
+    // Toggle between modes when the user button is pressed
+    if (g_current_mode == MODE_LATENCY_TEST)
+    {
+      g_current_mode = MODE_CALIBRATION;
+    }
+    else
+    {
+      g_current_mode = MODE_LATENCY_TEST;
+    }
   }
 }
 
