@@ -18,12 +18,15 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "usb_device.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include "usbd_hid.h" 
+#include "usb_device.h"
 
 /* USER CODE END Includes */
 
@@ -55,6 +58,8 @@ UART_HandleTypeDef hlpuart1;
 TIM_HandleTypeDef htim2;
 
 /* USER CODE BEGIN PV */
+extern USBD_HandleTypeDef hUsbDeviceFS; // <-- ADD THIS LINE
+
 volatile OperatingMode g_current_mode = MODE_LATENCY_TEST;
 volatile bool g_mic_triggered = false;
 volatile bool g_is_timing = false;
@@ -63,6 +68,7 @@ volatile uint32_t g_end_time = 0;
 
 volatile uint32_t g_last_trigger_time = 0;
 const uint32_t DEBOUNCE_US = 200000; // 200ms debounce window in microseconds
+
 
 /* USER CODE END PV */
 
@@ -73,6 +79,7 @@ static void MX_LPUART1_UART_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
+void send_mouse_click(void);
 
 /* USER CODE END PFP */
 
@@ -118,8 +125,10 @@ int main(void)
   MX_LPUART1_UART_Init();
   MX_ADC1_Init();
   MX_TIM2_Init();
+  MX_USB_Device_Init();
   /* USER CODE BEGIN 2 */
-  printf("initialized\r\n");
+    GPIO_PinState last_button_state = GPIO_PIN_RESET;
+  printf("initialized, press button to start test.\r\n");
   HAL_TIM_Base_Start(&htim2); // <-- ADD THIS LINE
   
   /* USER CODE END 2 */
@@ -127,52 +136,48 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
+{
+  // --- Check for button press to start a test ---
+  GPIO_PinState current_button_state = HAL_GPIO_ReadPin(USER_BUTTON_GPIO_Port, USER_BUTTON_Pin);
+  if (current_button_state == GPIO_PIN_SET && last_button_state == GPIO_PIN_RESET)
   {
-  if (g_current_mode == MODE_CALIBRATION)
-  {
-    // --- CALIBRATION MODE ---
-    uint32_t sensorValue = 0;
-    HAL_ADC_Start(&hadc1);
-    if (HAL_ADC_PollForConversion(&hadc1, 100) == HAL_OK)
-    {
-      sensorValue = HAL_ADC_GetValue(&hadc1);
-    }
-    HAL_ADC_Stop(&hadc1);
-    
-    // Continuously print the light sensor value
-    printf("Calibration - Light Sensor: %lu\r\n", sensorValue);
-    HAL_Delay(100);
-  }
-  else
-  {
-    // --- LATENCY TEST MODE ---
-    if (g_current_mode == MODE_LATENCY_TEST)
-  {
-    if (g_is_timing)
+    printf("Starting latency test...\r\n");
+
+    // Immediately start the timer and send the click
+    uint32_t start_time = __HAL_TIM_GET_COUNTER(&htim2);
+    send_mouse_click();
+
+    // Loop quickly to poll the sensor for a response
+    while (1)
     {
       uint32_t sensorValue = 0;
       HAL_ADC_Start(&hadc1);
-      if (HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK) {
+      if (HAL_ADC_PollForConversion(&hadc1, 1) == HAL_OK) {
         sensorValue = HAL_ADC_GetValue(&hadc1);
       }
       HAL_ADC_Stop(&hadc1);
 
-      if (sensorValue > 100)
+      // Check if light sensor crossed the threshold
+      if (sensorValue > 100) // Your calibrated threshold
       {
-        g_end_time = __HAL_TIM_GET_COUNTER(&htim2);
-        g_is_timing = false;
-
-        uint32_t latency_us = g_end_time - g_start_time;
+        uint32_t end_time = __HAL_TIM_GET_COUNTER(&htim2);
+        uint32_t latency_us = end_time - start_time;
         printf("Latency: %lu us\r\n", latency_us);
+        break; // Exit the inner polling loop
+      }
 
-        // IMPORTANT: Re-enable the interrupt to arm for the next measurement.
-        // Add a small delay to allow sound to die down before re-arming.
-        HAL_Delay(200);
-        HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+      // Optional: Add a timeout to prevent getting stuck forever
+      if ((__HAL_TIM_GET_COUNTER(&htim2) - start_time) > 200000) // 200ms timeout
+      {
+        printf("Test timed out: No screen flash detected.\r\n");
+        break; // Exit the inner polling loop
       }
     }
+    
+    HAL_Delay(10); 
   }
-  }
+  last_button_state = current_button_state;
+  
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -199,7 +204,13 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+  RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV1;
+  RCC_OscInitStruct.PLL.PLLN = 12;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV4;
+  RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -457,6 +468,18 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
       g_current_mode = MODE_LATENCY_TEST;
     }
   }
+}
+
+void send_mouse_click(void)
+{
+  uint8_t hid_report[4] = {0};
+
+  hid_report[0] = 0x01; 
+  USBD_HID_SendReport(&hUsbDeviceFS, hid_report, sizeof(hid_report));
+  HAL_Delay(20);
+
+  hid_report[0] = 0x00;
+  USBD_HID_SendReport(&hUsbDeviceFS, hid_report, sizeof(hid_report));
 }
 
 /* USER CODE END 4 */
