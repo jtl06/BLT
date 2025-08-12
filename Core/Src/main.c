@@ -52,13 +52,17 @@ typedef enum
 
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
+DMA_HandleTypeDef hdma_adc1;
 
 UART_HandleTypeDef hlpuart1;
 
 TIM_HandleTypeDef htim2;
 
 /* USER CODE BEGIN PV */
-extern USBD_HandleTypeDef hUsbDeviceFS; // <-- ADD THIS LINE
+extern USBD_HandleTypeDef hUsbDeviceFS; 
+
+#define ADC_BUF_LEN   256 
+volatile uint16_t g_adc_dma_buf[ADC_BUF_LEN];
 
 volatile OperatingMode g_current_mode = MODE_LATENCY_TEST;
 volatile bool g_mic_triggered = false;
@@ -75,11 +79,13 @@ const uint32_t DEBOUNCE_US = 200000; // 200ms debounce window in microseconds
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_LPUART1_UART_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 void send_mouse_click(void);
+static inline uint16_t adc_latest_sample(void); 
 
 /* USER CODE END PFP */
 
@@ -122,14 +128,22 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_LPUART1_UART_Init();
   MX_ADC1_Init();
   MX_TIM2_Init();
   MX_USB_Device_Init();
   /* USER CODE BEGIN 2 */
-    GPIO_PinState last_button_state = GPIO_PIN_RESET;
+  if (HAL_ADC_Start_DMA(&hadc1, (uint32_t*)g_adc_dma_buf, ADC_BUF_LEN) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  printf("Continuous ADC-DMA running, buf=%u samples\r\n", ADC_BUF_LEN);
+  GPIO_PinState last_button_state = GPIO_PIN_RESET;
   printf("initialized, press button to start test.\r\n");
   HAL_TIM_Base_Start(&htim2); // <-- ADD THIS LINE
+  
   
   /* USER CODE END 2 */
 
@@ -150,28 +164,21 @@ int main(void)
     // Loop quickly to poll the sensor for a response
     while (1)
     {
-      uint32_t sensorValue = 0;
-      HAL_ADC_Start(&hadc1);
-      if (HAL_ADC_PollForConversion(&hadc1, 1) == HAL_OK) {
-        sensorValue = HAL_ADC_GetValue(&hadc1);
-      }
-      HAL_ADC_Stop(&hadc1);
+    uint32_t now          = __HAL_TIM_GET_COUNTER(&htim2);
+    uint16_t light_sample = 9();
 
-      // Check if light sensor crossed the threshold
-      if (sensorValue > 100) // Your calibrated threshold
-      {
-        uint32_t end_time = __HAL_TIM_GET_COUNTER(&htim2);
-        uint32_t latency_us = end_time - start_time;
-        printf("Latency: %lu us\r\n", latency_us);
-        break; // Exit the inner polling loop
-      }
+    if (light_sample > 100)
+    {
+        uint32_t end_time = now;
+        printf("Latency: %lu us\r\n", end_time - start_time);
+        break;
+    }
 
-      // Optional: Add a timeout to prevent getting stuck forever
-      if ((__HAL_TIM_GET_COUNTER(&htim2) - start_time) > 200000) // 200ms timeout
-      {
-        printf("Test timed out: No screen flash detected.\r\n");
-        break; // Exit the inner polling loop
-      }
+    if (now - start_time > 200000)              // 200 ms timeout
+    {
+        printf("Timed out – no flash detected\r\n");
+        break;
+    }
     }
     
     HAL_Delay(10); 
@@ -260,12 +267,12 @@ static void MX_ADC1_Init(void)
   hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
   hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
   hadc1.Init.LowPowerAutoWait = DISABLE;
-  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.ContinuousConvMode = ENABLE;
   hadc1.Init.NbrOfConversion = 1;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
   hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
-  hadc1.Init.DMAContinuousRequests = DISABLE;
+  hadc1.Init.DMAContinuousRequests = ENABLE;
   hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
   hadc1.Init.OversamplingMode = DISABLE;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
@@ -392,6 +399,23 @@ static void MX_TIM2_Init(void)
 }
 
 /**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMAMUX1_CLK_ENABLE();
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Channel1_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -442,6 +466,13 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+static inline uint16_t adc_latest_sample(void)
+{
+    uint32_t dma_remaining = __HAL_DMA_GET_COUNTER(&hdma_adc1);
+    uint32_t idx           = (ADC_BUF_LEN - dma_remaining) & (ADC_BUF_LEN-1);
+    return g_adc_dma_buf[idx];
+}
+
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
   if (GPIO_Pin == MIC1_Pin)
