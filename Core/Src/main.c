@@ -25,8 +25,8 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include "usbd_hid.h" 
-#include "usb_device.h"
+#include "usbd_custom_hid_if.h"
+
 
 /* USER CODE END Includes */
 
@@ -59,7 +59,7 @@ UART_HandleTypeDef hlpuart1;
 TIM_HandleTypeDef htim2;
 
 /* USER CODE BEGIN PV */
-extern USBD_HandleTypeDef hUsbDeviceFS; 
+extern USBD_HandleTypeDef hUsbDeviceFS;
 
 #define ADC_BUF_LEN   256 
 volatile uint16_t g_adc_dma_buf[ADC_BUF_LEN];
@@ -466,6 +466,24 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+static inline int usb_is_configured(void) {
+  return (hUsbDeviceFS.dev_state == USBD_STATE_CONFIGURED);
+}
+
+static void hid_send_mouse(uint8_t buttons, int8_t dx, int8_t dy)
+{
+  if (!usb_is_configured()) return;
+
+  uint8_t rpt[4] = { 0x01, buttons, (uint8_t)dx, (uint8_t)dy }; // Report ID 1
+  // Keep trying until class accepts the packet (briefly yields if BUSY)
+  for (int tries = 0; tries < 50; ++tries) {
+    if (USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, rpt, sizeof(rpt)) == USBD_OK) return;
+    HAL_Delay(1);
+  }
+  // If you want to see failures:
+  // printf("HID: SendReport busy\n");
+}
+
 static inline uint16_t adc_latest_sample(void)
 {
     uint32_t dma_remaining = __HAL_DMA_GET_COUNTER(&hdma_adc1);
@@ -503,14 +521,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
 void send_mouse_click(void)
 {
-  uint8_t hid_report[4] = {0};
-
-  hid_report[0] = 0x01; 
-  USBD_HID_SendReport(&hUsbDeviceFS, hid_report, sizeof(hid_report));
-  HAL_Delay(20);
-
-  hid_report[0] = 0x00;
-  USBD_HID_SendReport(&hUsbDeviceFS, hid_report, sizeof(hid_report));
+  hid_send_mouse(0x01, 0, 0);  // left down
+  HAL_Delay(15);
+  hid_send_mouse(0x00, 0, 0);  // left up
 }
 
 /* USER CODE END 4 */

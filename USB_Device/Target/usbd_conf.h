@@ -54,6 +54,18 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
+// Endpoint packet sizes for Custom HID
+#undef  CUSTOM_HID_EPIN_SIZE
+#undef  CUSTOM_HID_EPOUT_SIZE
+#define CUSTOM_HID_EPIN_SIZE    0x40   // 64
+#define CUSTOM_HID_EPOUT_SIZE   0x40   // 64
+
+// Report buffer sizes used by the class
+#undef  USBD_CUSTOMHID_OUTREPORT_BUF_SIZE
+#undef  USBD_CUSTOMHID_INREPORT_BUF_SIZE
+#define USBD_CUSTOMHID_OUTREPORT_BUF_SIZE   64
+#define USBD_CUSTOMHID_INREPORT_BUF_SIZE    64
+
 /* USER CODE END PV */
 /**
   * @}
@@ -77,7 +89,11 @@
 /*---------- -----------*/
 #define USBD_SELF_POWERED     1U
 /*---------- -----------*/
-#define HID_FS_BINTERVAL     0xAU
+#define USBD_CUSTOMHID_OUTREPORT_BUF_SIZE     2U
+/*---------- -----------*/
+#define USBD_CUSTOM_HID_REPORT_DESC_SIZE     98U
+/*---------- -----------*/
+#define CUSTOM_HID_FS_BINTERVAL     0x5U
 
 /****************************************/
 /* #define for FS and HS identification */
