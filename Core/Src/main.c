@@ -165,7 +165,7 @@ int main(void)
     while (1)
     {
     uint32_t now          = __HAL_TIM_GET_COUNTER(&htim2);
-    uint16_t light_sample = 9();
+    uint16_t light_sample = adc_latest_sample();
 
     if (light_sample > 100)
     {
