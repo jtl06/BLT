@@ -26,6 +26,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "usbd_custom_hid_if.h"
+#include <string.h>
+#include <stdlib.h>
 
 
 /* USER CODE END Includes */
@@ -73,6 +75,10 @@ volatile uint32_t g_end_time = 0;
 volatile uint32_t g_last_trigger_time = 0;
 const uint32_t DEBOUNCE_US = 200000; // 200ms debounce window in microseconds
 
+static uint8_t  rx_byte;
+static char     cmd_buf[96];
+static uint8_t  cmd_len = 0; 
+
 
 /* USER CODE END PV */
 
@@ -86,6 +92,9 @@ static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 void send_mouse_click(void);
 static inline uint16_t adc_latest_sample(void); 
+static void uart_start_rx_it(void);
+static void send_line(const char *s);
+static void handle_cmd(const char *cmd);
 
 /* USER CODE END PFP */
 
@@ -134,6 +143,7 @@ int main(void)
   MX_TIM2_Init();
   MX_USB_Device_Init();
   /* USER CODE BEGIN 2 */
+
   if (HAL_ADC_Start_DMA(&hadc1, (uint32_t*)g_adc_dma_buf, ADC_BUF_LEN) != HAL_OK)
   {
     Error_Handler();
@@ -142,8 +152,10 @@ int main(void)
   printf("Continuous ADC-DMA running, buf=%u samples\r\n", ADC_BUF_LEN);
   GPIO_PinState last_button_state = GPIO_PIN_RESET;
   printf("initialized, press button to start test.\r\n");
-  HAL_TIM_Base_Start(&htim2); // <-- ADD THIS LINE
-  
+  HAL_TIM_Base_Start(&htim2);
+
+  uart_start_rx_it();
+  send_line("HELLO STM32 LDAT 1.0\r\n");
   
   /* USER CODE END 2 */
 
@@ -151,39 +163,39 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
 {
-  // --- Check for button press to start a test ---
-  GPIO_PinState current_button_state = HAL_GPIO_ReadPin(USER_BUTTON_GPIO_Port, USER_BUTTON_Pin);
-  if (current_button_state == GPIO_PIN_SET && last_button_state == GPIO_PIN_RESET)
-  {
-    printf("Starting latency test...\r\n");
+  // // --- Check for button press to start a test ---
+  // GPIO_PinState current_button_state = HAL_GPIO_ReadPin(USER_BUTTON_GPIO_Port, USER_BUTTON_Pin);
+  // if (current_button_state == GPIO_PIN_SET && last_button_state == GPIO_PIN_RESET)
+  // {
+  //   printf("Starting latency test...\r\n");
 
-    // Immediately start the timer and send the click
-    uint32_t start_time = __HAL_TIM_GET_COUNTER(&htim2);
-    send_mouse_click();
+  //   // Immediately start the timer and send the click
+  //   uint32_t start_time = __HAL_TIM_GET_COUNTER(&htim2);
+  //   send_mouse_click();
 
-    // Loop quickly to poll the sensor for a response
-    while (1)
-    {
-    uint32_t now          = __HAL_TIM_GET_COUNTER(&htim2);
-    uint16_t light_sample = adc_latest_sample();
+  //   // Loop quickly to poll the sensor for a response
+  //   while (1)
+  //   {
+  //   uint32_t now          = __HAL_TIM_GET_COUNTER(&htim2);
+  //   uint16_t light_sample = adc_latest_sample();
 
-    if (light_sample > 100)
-    {
-        uint32_t end_time = now;
-        printf("Latency: %lu us\r\n", end_time - start_time);
-        break;
-    }
+  //   if (light_sample > 100)
+  //   {
+  //       uint32_t end_time = now;
+  //       printf("Latency: %lu us\r\n", end_time - start_time);
+  //       break;
+  //   }
 
-    if (now - start_time > 200000)              // 200 ms timeout
-    {
-        printf("Timed out – no flash detected\r\n");
-        break;
-    }
-    }
+  //   if (now - start_time > 200000)              // 200 ms timeout
+  //   {
+  //       printf("Timed out – no flash detected\r\n");
+  //       break;
+  //   }
+  //   }
     
-    HAL_Delay(10); 
-  }
-  last_button_state = current_button_state;
+  //   HAL_Delay(10); 
+  // }
+  // last_button_state = current_button_state;
   
     /* USER CODE END WHILE */
 
@@ -524,6 +536,68 @@ void send_mouse_click(void)
   hid_send_mouse(0x01, 0, 0);  // left down
   HAL_Delay(15);
   hid_send_mouse(0x00, 0, 0);  // left up
+}
+
+static void uart_start_rx_it(void) {
+  HAL_UART_Receive_IT(&hlpuart1, &rx_byte, 1);
+}
+
+static void send_line(const char *s) {
+  HAL_UART_Transmit(&hlpuart1, (uint8_t*)s, (uint16_t)strlen(s), HAL_MAX_DELAY);
+}
+
+// Handle one complete command line (no trailing \r or \n)
+static void handle_cmd(const char *cmd) {
+  if (strcmp(cmd, "HELLO") == 0) {
+    send_line("ACK HELLO\r\n");
+  } else if (strcmp(cmd, "PING") == 0) {
+    send_line("PONG\r\n");
+  } else if (strncmp(cmd, "MODE ", 5) == 0) {
+    if (strcmp(cmd+5, "CAL") == 0) {
+      g_current_mode = MODE_CALIBRATION;
+      send_line("ACK MODE CAL\r\n");
+    } else if (strcmp(cmd+5, "TEST") == 0) {
+      g_current_mode = MODE_LATENCY_TEST;
+      send_line("ACK MODE TEST\r\n");
+    } else {
+      send_line("ERR MODE\r\n");
+    }
+  } else if (strncmp(cmd, "TEST START ", 11) == 0) {
+    uint32_t n = (uint32_t)strtoul(cmd+11, NULL, 10);
+    // For now, just ACK; you can trigger your real test loop here.
+    char buf[48];
+    snprintf(buf, sizeof(buf), "ACK TEST START %lu\r\n", (unsigned long)n);
+    send_line(buf);
+    // TODO: start your test loop 'n' times and print DATA lines
+  } else if (strcmp(cmd, "STATUS") == 0) {
+    char buf[64];
+    snprintf(buf, sizeof(buf), "STATUS mode=%s\r\n",
+             (g_current_mode==MODE_CALIBRATION) ? "CAL" : "TEST");
+    send_line(buf);
+  } else {
+    send_line("ERR UNKNOWN\r\n");
+  }
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
+  if (huart == &hlpuart1) {
+    uint8_t c = rx_byte;
+
+    // Treat CR or LF as end-of-line
+    if (c == '\n' || c == '\r') {
+      if (cmd_len) {
+        cmd_buf[cmd_len] = '\0';
+        handle_cmd(cmd_buf);
+        cmd_len = 0;
+      }
+    } else if (cmd_len < sizeof(cmd_buf)-1) {
+      cmd_buf[cmd_len++] = (char)c;
+    } else {
+      cmd_len = 0;  // overflow → reset
+    }
+
+    HAL_UART_Receive_IT(&hlpuart1, &rx_byte, 1);  // re-arm for next byte
+  }
 }
 
 /* USER CODE END 4 */
