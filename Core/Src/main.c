@@ -25,7 +25,6 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include "usbd_custom_hid_if.h"
 #include <string.h>
 #include <stdlib.h>
 
@@ -34,16 +33,26 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-typedef enum
-{
-  MODE_LATENCY_TEST,
-  MODE_CALIBRATION
-} OperatingMode;
+typedef enum {
+  MODE1_CALIBRATION = 1,
+  MODE2_TRIGGER     = 2,
+  MODE3_MIC         = 3,
+} ldat_mode_t;
 
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#ifndef ADC_BUF_LEN
+#define ADC_BUF_LEN 256u
+#endif
+
+#define MODE2_SPACING_MS 500u
+
+#define MIC_DEBOUNCE_US 20000u  // 20 ms
+
+#define FW_VERSION "LDAT 1.0"
+
 
 /* USER CODE END PD */
 
@@ -63,10 +72,26 @@ TIM_HandleTypeDef htim2;
 /* USER CODE BEGIN PV */
 extern USBD_HandleTypeDef hUsbDeviceFS;
 
-#define ADC_BUF_LEN   256 
+extern uint16_t adc_dma_buf[ADC_BUF_LEN];
+static uint16_t          g_light_threshold = 200;
+static volatile uint32_t g_tests_remaining = 0;
+static uint32_t          g_trial_idx = 0;
+static volatile bool     g_waiting_for_light = false;
+static volatile uint32_t g_t_start_us = 0;
+
+static uint32_t          g_last_launch_ms = 0;
+
+static volatile uint32_t g_last_mic_us = 0;
+
+
+static uint8_t  rx_byte;
+static char     cmd_buf[96];
+static uint8_t  cmd_len = 0;
+
 volatile uint16_t g_adc_dma_buf[ADC_BUF_LEN];
 
-volatile OperatingMode g_current_mode = MODE_LATENCY_TEST;
+static volatile ldat_mode_t g_mode = MODE1_CALIBRATION;
+
 volatile bool g_mic_triggered = false;
 volatile bool g_is_timing = false;
 volatile uint32_t g_start_time = 0;
@@ -75,9 +100,9 @@ volatile uint32_t g_end_time = 0;
 volatile uint32_t g_last_trigger_time = 0;
 const uint32_t DEBOUNCE_US = 200000; // 200ms debounce window in microseconds
 
-static uint8_t  rx_byte;
-static char     cmd_buf[96];
-static uint8_t  cmd_len = 0; 
+volatile ldat_mode_t g_current_mode = MODE1_CALIBRATION;
+
+static volatile bool g_btn_click_req = false;
 
 
 /* USER CODE END PV */
@@ -95,6 +120,9 @@ static inline uint16_t adc_latest_sample(void);
 static void uart_start_rx_it(void);
 static void send_line(const char *s);
 static void handle_cmd(const char *cmd);
+static inline uint32_t tim2_us(void);
+static inline int usb_is_configured(void);
+
 
 /* USER CODE END PFP */
 
@@ -143,6 +171,8 @@ int main(void)
   MX_TIM2_Init();
   MX_USB_Device_Init();
   /* USER CODE BEGIN 2 */
+  
+  HAL_ADCEx_Calibration_Start(&hadc1, ADC_SINGLE_ENDED);
 
   if (HAL_ADC_Start_DMA(&hadc1, (uint32_t*)g_adc_dma_buf, ADC_BUF_LEN) != HAL_OK)
   {
@@ -150,53 +180,47 @@ int main(void)
   }
 
   printf("Continuous ADC-DMA running, buf=%u samples\r\n", ADC_BUF_LEN);
-  GPIO_PinState last_button_state = GPIO_PIN_RESET;
-  printf("initialized, press button to start test.\r\n");
+  printf("Initialized, JTL LDAT 1.0\r\n");
   HAL_TIM_Base_Start(&htim2);
-
   uart_start_rx_it();
-  send_line("HELLO STM32 LDAT 1.0\r\n");
   
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  while (1)
-{
-  // // --- Check for button press to start a test ---
-  // GPIO_PinState current_button_state = HAL_GPIO_ReadPin(USER_BUTTON_GPIO_Port, USER_BUTTON_Pin);
-  // if (current_button_state == GPIO_PIN_SET && last_button_state == GPIO_PIN_RESET)
-  // {
-  //   printf("Starting latency test...\r\n");
+while (1) {
+  uint32_t now_ms = HAL_GetTick();
 
-  //   // Immediately start the timer and send the click
-  //   uint32_t start_time = __HAL_TIM_GET_COUNTER(&htim2);
-  //   send_mouse_click();
+  // MODE2: launch trials every 500 ms when armed
+  if (g_mode == MODE2_TRIGGER && g_tests_remaining && !g_waiting_for_light) {
+    if ((now_ms - g_last_launch_ms) >= MODE2_SPACING_MS) {
+      g_last_launch_ms = now_ms;
+      g_waiting_for_light = true;
+      send_mouse_click();
+      g_t_start_us = tim2_us();  //start time
+    }
+  }
 
-  //   // Loop quickly to poll the sensor for a response
-  //   while (1)
-  //   {
-  //   uint32_t now          = __HAL_TIM_GET_COUNTER(&htim2);
-  //   uint16_t light_sample = adc_latest_sample();
+  // Complete a trial when light crosses threshold
+  if (g_waiting_for_light && (adc_latest_sample() >= g_light_threshold)) {
+    uint32_t t_end = tim2_us();
+    uint32_t dt_us = (uint32_t)(t_end - g_t_start_us);
 
-  //   if (light_sample > 100)
-  //   {
-  //       uint32_t end_time = now;
-  //       printf("Latency: %lu us\r\n", end_time - start_time);
-  //       break;
-  //   }
+    ++g_trial_idx;
+    char out[96];
+    int n = snprintf(out, sizeof out, "DATA,%lu,%lu,%u\r\n",
+                     (unsigned long)g_trial_idx,
+                     (unsigned long)dt_us,
+                     (unsigned)adc_latest_sample());
+    HAL_UART_Transmit(&hlpuart1, (uint8_t*)out, (uint16_t)n, HAL_MAX_DELAY);
 
-  //   if (now - start_time > 200000)              // 200 ms timeout
-  //   {
-  //       printf("Timed out – no flash detected\r\n");
-  //       break;
-  //   }
-  //   }
-    
-  //   HAL_Delay(10); 
-  // }
-  // last_button_state = current_button_state;
+    g_waiting_for_light = false;
+    if (--g_tests_remaining == 0) {
+      send_line("DONE\r\n");
+    }
+  }
   
+  __WFI();
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -482,20 +506,6 @@ static inline int usb_is_configured(void) {
   return (hUsbDeviceFS.dev_state == USBD_STATE_CONFIGURED);
 }
 
-static void hid_send_mouse(uint8_t buttons, int8_t dx, int8_t dy)
-{
-  if (!usb_is_configured()) return;
-
-  uint8_t rpt[4] = { 0x01, buttons, (uint8_t)dx, (uint8_t)dy }; // Report ID 1
-  // Keep trying until class accepts the packet (briefly yields if BUSY)
-  for (int tries = 0; tries < 50; ++tries) {
-    if (USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, rpt, sizeof(rpt)) == USBD_OK) return;
-    HAL_Delay(1);
-  }
-  // If you want to see failures:
-  // printf("HID: SendReport busy\n");
-}
-
 static inline uint16_t adc_latest_sample(void)
 {
     uint32_t dma_remaining = __HAL_DMA_GET_COUNTER(&hdma_adc1);
@@ -503,87 +513,50 @@ static inline uint16_t adc_latest_sample(void)
     return g_adc_dma_buf[idx];
 }
 
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
-{
-  if (GPIO_Pin == MIC1_Pin)
-  {
-    uint32_t now = __HAL_TIM_GET_COUNTER(&htim2);
-
-    // Only accept a trigger if enough time has passed since the last one
-    if ((now - g_last_trigger_time) > DEBOUNCE_US)
-    {
-      g_last_trigger_time = now; // Update the time of the last valid trigger
-      g_start_time = now;      // This is our real start time
-      g_is_timing = true;
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+  if (GPIO_Pin == MIC1_Pin && g_mode == MODE3_MIC) {
+    uint32_t now = tim2_us();
+    if ((uint32_t)(now - g_last_mic_us) > MIC_DEBOUNCE_US) {
+      g_last_mic_us = now;
+      if (g_tests_remaining && !g_waiting_for_light) {
+        g_waiting_for_light = true;
+        g_t_start_us = now; // mic click time
+      }
     }
-  }
-  else if (GPIO_Pin == USER_BUTTON_Pin)
-  {
-    // Toggle between modes when the user button is pressed
-    if (g_current_mode == MODE_LATENCY_TEST)
-    {
-      g_current_mode = MODE_CALIBRATION;
-    }
-    else
-    {
-      g_current_mode = MODE_LATENCY_TEST;
-    }
+  } else if (GPIO_Pin == USER_BUTTON_Pin) {
+    g_btn_click_req = true;
   }
 }
 
+
 void send_mouse_click(void)
 {
-  hid_send_mouse(0x01, 0, 0);  // left down
-  HAL_Delay(15);
-  hid_send_mouse(0x00, 0, 0);  // left up
+  uint8_t hid_report[4] = {0};
+
+  hid_report[0] = 0x01; 
+  USBD_HID_SendReport(&hUsbDeviceFS, hid_report, sizeof(hid_report));
+  HAL_Delay(20);
+
+  hid_report[0] = 0x00;
+  USBD_HID_SendReport(&hUsbDeviceFS, hid_report, sizeof(hid_report));
 }
 
 static void uart_start_rx_it(void) {
   HAL_UART_Receive_IT(&hlpuart1, &rx_byte, 1);
 }
 
-static void send_line(const char *s) {
+static inline void send_line(const char *s) {
   HAL_UART_Transmit(&hlpuart1, (uint8_t*)s, (uint16_t)strlen(s), HAL_MAX_DELAY);
 }
 
-// Handle one complete command line (no trailing \r or \n)
-static void handle_cmd(const char *cmd) {
-  if (strcmp(cmd, "HELLO") == 0) {
-    send_line("ACK HELLO\r\n");
-  } else if (strcmp(cmd, "PING") == 0) {
-    send_line("PONG\r\n");
-  } else if (strncmp(cmd, "MODE ", 5) == 0) {
-    if (strcmp(cmd+5, "CAL") == 0) {
-      g_current_mode = MODE_CALIBRATION;
-      send_line("ACK MODE CAL\r\n");
-    } else if (strcmp(cmd+5, "TEST") == 0) {
-      g_current_mode = MODE_LATENCY_TEST;
-      send_line("ACK MODE TEST\r\n");
-    } else {
-      send_line("ERR MODE\r\n");
-    }
-  } else if (strncmp(cmd, "TEST START ", 11) == 0) {
-    uint32_t n = (uint32_t)strtoul(cmd+11, NULL, 10);
-    // For now, just ACK; you can trigger your real test loop here.
-    char buf[48];
-    snprintf(buf, sizeof(buf), "ACK TEST START %lu\r\n", (unsigned long)n);
-    send_line(buf);
-    // TODO: start your test loop 'n' times and print DATA lines
-  } else if (strcmp(cmd, "STATUS") == 0) {
-    char buf[64];
-    snprintf(buf, sizeof(buf), "STATUS mode=%s\r\n",
-             (g_current_mode==MODE_CALIBRATION) ? "CAL" : "TEST");
-    send_line(buf);
-  } else {
-    send_line("ERR UNKNOWN\r\n");
-  }
+static inline uint32_t tim2_us(void) {
+  return __HAL_TIM_GET_COUNTER(&htim2); // TIM2 configured 1 MHz, 32-bit
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
   if (huart == &hlpuart1) {
     uint8_t c = rx_byte;
 
-    // Treat CR or LF as end-of-line
     if (c == '\n' || c == '\r') {
       if (cmd_len) {
         cmd_buf[cmd_len] = '\0';
@@ -593,12 +566,90 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
     } else if (cmd_len < sizeof(cmd_buf)-1) {
       cmd_buf[cmd_len++] = (char)c;
     } else {
-      cmd_len = 0;  // overflow → reset
+      cmd_len = 0;
     }
-
-    HAL_UART_Receive_IT(&hlpuart1, &rx_byte, 1);  // re-arm for next byte
+    HAL_UART_Receive_IT(&hlpuart1, &rx_byte, 1);
   }
 }
+
+static void handle_cmd(const char *cmd) {
+  if (strcmp(cmd, "HELP") == 0) {
+    send_line("CMDS: HELLO, HELP, VERSION, STATUS, "
+              "MODE1, MODE2, MODE3, CAL READ, CAL AUTO, CAL SET <thr>, TEST START <n>\r\n");
+
+  } else if (strcmp(cmd, "HELLO") == 0) {
+    send_line("ACK HELLO\r\n");
+
+  } else if (strcmp(cmd, "VERSION") == 0) {
+    char b[48]; snprintf(b, sizeof b, "VERSION %s\r\n", FW_VERSION); send_line(b);
+
+  } else if (strcmp(cmd, "STATUS") == 0) {
+    char b[96];
+    snprintf(b, sizeof b, "STATUS mode=%u light=%u thr=%u waiting=%u left=%lu\r\n",
+             (unsigned)g_mode, (unsigned)adc_latest_sample(), (unsigned)g_light_threshold,
+             (unsigned)g_waiting_for_light, (unsigned long)g_tests_remaining);
+    send_line(b);
+
+  // ----- Modes -----
+  } else if (strcmp(cmd, "MODE1") == 0) {
+    g_mode = MODE1_CALIBRATION;  send_line("ACK MODE1\r\n");
+
+  } else if (strcmp(cmd, "MODE2") == 0) {
+    g_mode = MODE2_TRIGGER;      send_line("ACK MODE2\r\n");
+
+  } else if (strcmp(cmd, "MODE3") == 0) {
+    g_mode = MODE3_MIC;          send_line("ACK MODE3\r\n");
+
+  // ----- Calibration helpers -----
+  } else if (strcmp(cmd, "CAL READ") == 0) {
+    char b[64];
+    snprintf(b, sizeof b, "CAL,light=%u,thr=%u\r\n", (unsigned)adc_latest_sample(), (unsigned)g_light_threshold);
+    send_line(b);
+
+  } else if (strcmp(cmd, "CAL AUTO") == 0) {
+    uint32_t thr = (adc_latest_sample() * 125u) / 100u;  // +25%
+    if (thr > 4095u) thr = 4095u;
+    g_light_threshold = (uint16_t)thr;
+    char b[48];
+    snprintf(b, sizeof b, "ACK CAL SET %u\r\n", (unsigned)g_light_threshold);
+    send_line(b);
+
+  } else if (strncmp(cmd, "CAL SET ", 8) == 0) {
+    uint32_t v = strtoul(cmd+8, NULL, 10);
+    if (v > 4095u) v = 4095u;
+    g_light_threshold = (uint16_t)v;
+    char b[48];
+    snprintf(b, sizeof b, "ACK CAL SET %u\r\n", (unsigned)g_light_threshold);
+    send_line(b);
+
+  // ----- Test arming -----
+  } else if (strncmp(cmd, "TEST START ", 11) == 0) {
+    uint32_t n = strtoul(cmd+11, NULL, 10);
+    g_trial_idx = 0;
+    g_tests_remaining = n;
+    g_waiting_for_light = false;
+    send_line("DATA,trial,latency_us,light\r\n");  // CSV header
+    char b[64];
+    snprintf(b, sizeof b, "ACK TEST START %lu\r\n", (unsigned long)n);
+    send_line(b);
+
+    // MODE2: optionally launch first trial immediately
+    if (g_mode == MODE2_TRIGGER && g_tests_remaining) {
+      g_last_launch_ms = HAL_GetTick() - MODE2_SPACING_MS; // so it fires right away
+    }
+
+  } else {
+    send_line("ERR UNKNOWN\r\n");
+  }
+}
+
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart) {
+  if (huart == &hlpuart1) {
+    __HAL_UART_CLEAR_OREFLAG(huart);
+    HAL_UART_Receive_IT(&hlpuart1, &rx_byte, 1);
+  }
+}
+
 
 /* USER CODE END 4 */
 
