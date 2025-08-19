@@ -47,7 +47,7 @@ typedef enum {
 #define ADC_BUF_LEN 256u
 #endif
 
-#define MODE2_SPACING_MS 5000u // 2 seconds
+#define MODE2_SPACING_MS 5000u // 5 seconds
 
 #define MIC_DEBOUNCE_US 20000u  // 20 ms
 
@@ -98,8 +98,7 @@ volatile uint32_t g_start_time = 0;
 volatile uint32_t g_end_time = 0;
 
 volatile uint32_t g_last_trigger_time = 0;
-const uint32_t DEBOUNCE_US = 200000; // 200ms debounce window in microseconds
-
+const uint32_t DEBOUNCE_US = 200000; // 200ms debounce window
 volatile ldat_mode_t g_current_mode = MODE1_CALIBRATION;
 
 static volatile bool g_btn_click_req = false;
@@ -180,7 +179,7 @@ int main(void)
   }
 
   printf("Continuous ADC-DMA running, buf=%u samples\r\n", ADC_BUF_LEN);
-  printf("Initialized, JTL LDAT 1.0\r\n");
+  printf("Initialized, JTL LDAT v0.1.0\r\n");
   HAL_TIM_Base_Start(&htim2);
   uart_start_rx_it();
   
@@ -191,7 +190,7 @@ int main(void)
 while (1) {
   uint32_t now_ms = HAL_GetTick();
 
-  // MODE2: launch trials every 500 ms when armed
+  // MODE2: launch trials periodically, using USB as trigger
   if (g_mode == MODE2_TRIGGER && g_tests_remaining && !g_waiting_for_light) {
     if ((now_ms - g_last_launch_ms) >= MODE2_SPACING_MS) {
       g_last_launch_ms = now_ms;
