@@ -1,438 +1,367 @@
-#!/usr/bin/env python3
+import sys, time, csv
+from pathlib import Path
+from statistics import mean, median, pstdev
+from PySide6 import QtCore, QtGui, QtWidgets
+import serial, serial.tools.list_ports
 
-"""
-LDAT Serial GUI (PyQt6)
------------------------
-A simple GUI to talk to your STM32 over the ST-LINK Virtual COM Port.
+EOL = b"\n"   # your firmware accepts LF or CRLF; we'll send LF
 
-Features:
-- Select COM port + baud and connect
-- Toggle Calibration vs Test mode
-- Start a test N times
-- Receive "DATA,..." lines from the device, show them in a table
-- Export to CSV
-- Basic statistics (count, mean, std, min, max, p10/50/90) per numeric column
-
-Protocol (you can tweak easily):
-PC -> "MODE CAL\n" or "MODE TEST\n"
-PC -> "TEST START <n>\n"
-MCU -> "ACK <text>\n"        (optional)
-MCU -> "DATA,<trial>,<value>\n"  (CSV-compatible lines; can add more columns)
-MCU -> "DONE\n"              (optional; used to know a batch finished)
-
-Install:
-    pip install -r requirements.txt
-Run:
-    python ldat_gui.py
-"""
-
-import sys
-import csv
-import time
-import threading
-from typing import List, Optional
-
-from PyQt6 import QtCore, QtGui, QtWidgets
-from PyQt6.QtCore import Qt, pyqtSignal, QObject
-import serial
-import serial.tools.list_ports as list_ports
-
-
-def list_serial_ports() -> List[str]:
-    ports = []
-    for p in list_ports.comports():
-        # Favor human-readable description if present
-        label = f"{p.device} - {p.description}"
-        ports.append(label)
-    return ports
-
-
-def extract_port_device(label: str) -> str:
-    # label format "<device> - <desc>"
-    return label.split(" - ")[0].strip()
-
-
+# ---------- Serial worker (runs in its own thread) ----------
 class SerialWorker(QtCore.QObject):
-    """Background reader for the serial port."""
-    line_received = pyqtSignal(str)
-    connected = pyqtSignal(bool, str)
+    line = QtCore.Signal(str)
+    status = QtCore.Signal(str)
+    connected = QtCore.Signal(bool)
 
     def __init__(self):
         super().__init__()
-        self._ser: Optional[serial.Serial] = None
+        self._ser = None
         self._running = False
+        self._buf = bytearray()
 
-    def connect(self, port: str, baud: int):
+    @QtCore.Slot(str, int)
+    def start(self, port: str, baud: int):
+        self.stop()
         try:
-            self._ser = serial.Serial(port, baudrate=baud, timeout=0.1)
+            self._ser = serial.Serial(port=port, baudrate=baud, timeout=0.05)
             self._running = True
-            self.connected.emit(True, f"Connected to {port} @ {baud}")
-            threading.Thread(target=self._read_loop, daemon=True).start()
+            self.connected.emit(True)
+            self.status.emit(f"Connected {port} @ {baud}")
         except Exception as e:
-            self.connected.emit(False, f"Connect failed: {e}")
+            self._ser = None
+            self.connected.emit(False)
+            self.status.emit(f"ERROR opening {port}: {e}")
+            return
+        QtCore.QTimer.singleShot(0, self._pump)
 
-    def disconnect(self):
+    @QtCore.Slot()
+    def stop(self):
         self._running = False
-        try:
-            if self._ser and self._ser.is_open:
-                self._ser.close()
-        except Exception:
-            pass
-        self.connected.emit(False, "Disconnected")
+        if self._ser and self._ser.is_open:
+            try: self._ser.close()
+            except: pass
+        self._ser = None
+        self.connected.emit(False)
 
-    def write_line(self, s: str):
+    def _pump(self):
+        if not self._running or not self._ser:
+            return
         try:
-            if self._ser and self._ser.is_open:
-                if not s.endswith("\n"):
-                    s += "\n"
-                self._ser.write(s.encode("utf-8"))
+            data = self._ser.read(1024)
+            if data:
+                self._buf.extend(data)
+                while True:
+                    # look for LF first, else CR
+                    i_n = self._buf.find(b"\n")
+                    i_r = self._buf.find(b"\r")
+                    idxs = [i for i in (i_n, i_r) if i != -1]
+                    if not idxs:
+                        break
+                    i = min(idxs)
+                    raw = bytes(self._buf[:i])        # bytes up to delimiter
+                    # remove the line + delimiter (+ optional CRLF partner)
+                    rm = 1
+                    if i + 1 < len(self._buf) and self._buf[i] in (13,10) and self._buf[i+1] in (13,10) and self._buf[i+1] != self._buf[i]:
+                        rm = 2
+                    del self._buf[:i + rm]
+                    s = raw.decode("utf-8", errors="replace").strip()
+                    if s:
+                        self.line.emit(s)
         except Exception as e:
-            self.line_received.emit(f"ERR write: {e}")
+            self.status.emit(f"Serial read error: {e}")
+            self.stop()
+            return
+        QtCore.QTimer.singleShot(5, self._pump)
 
-    def _read_loop(self):
-        buf = bytearray()
-        while self._running and self._ser and self._ser.is_open:
+    @QtCore.Slot(str)
+    def write_line(self, s: str):
+        if not self._ser or not self._ser.is_open: return
+        try:
+            self._ser.write(s.encode("utf-8") + EOL)
+        except Exception as e:
+            self.status.emit(f"Serial write error: {e}")
+
+# ---------- Table model ----------
+class DataModel(QtGui.QStandardItemModel):
+    def __init__(self):
+        super().__init__(0, 3)
+        self.setHorizontalHeaderLabels(["trial", "latency_us", "light"])
+
+    def add_row(self, trial:int, latency:int, light:int):
+        items = [
+            QtGui.QStandardItem(str(trial)),
+            QtGui.QStandardItem(str(latency)),
+            QtGui.QStandardItem(str(light)),
+        ]
+        for it in items: it.setEditable(False)
+        self.appendRow(items)
+
+    def clear_data(self):
+        self.setRowCount(0)
+
+    def latency_values(self):
+        vals = []
+        for r in range(self.rowCount()):
             try:
-                data = self._ser.read(256)
-                if data:
-                    buf.extend(data)
-                    # split by newline
-                    while b"\n" in buf:
-                        line, _, buf = buf.partition(b"\n")
-                        try:
-                            text = line.decode("utf-8", errors="replace").strip("\r")
-                        except Exception:
-                            text = repr(line)
-                        self.line_received.emit(text)
-                else:
-                    time.sleep(0.01)
-            except Exception as e:
-                self.line_received.emit(f"ERR read: {e}")
-                break
-        self.connected.emit(False, "Disconnected")
+                vals.append(int(self.item(r,1).text()))
+            except: pass
+        return vals
 
-
-class DataTableModel(QtCore.QAbstractTableModel):
-    def __init__(self, headers: List[str] = None, parent=None):
-        super().__init__(parent)
-        self.headers = headers or []
-        self.rows: List[List[str]] = []
-
-    def rowCount(self, parent=None):
-        return len(self.rows)
-
-    def columnCount(self, parent=None):
-        return len(self.headers)
-
-    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
-        if not index.isValid():
-            return None
-        if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
-            return self.rows[index.row()][index.column()]
-        return None
-
-    def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
-        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
-            if 0 <= section < len(self.headers):
-                return self.headers[section]
-        return None
-
-    def add_row(self, row: List[str]):
-        self.beginInsertRows(QtCore.QModelIndex(), len(self.rows), len(self.rows))
-        self.rows.append(row)
-        self.endInsertRows()
-
-    def clear(self):
-        self.beginResetModel()
-        self.rows.clear()
-        self.endResetModel()
-
-    def set_headers(self, headers: List[str]):
-        self.beginResetModel()
-        self.headers = headers
-        self.rows.clear()
-        self.endResetModel()
-
-    def export_csv(self, path: str):
-        with open(path, "w", newline="", encoding="utf-8") as f:
-            w = csv.writer(f)
-            if self.headers:
-                w.writerow(self.headers)
-            for r in self.rows:
-                w.writerow(r)
-
-    def numeric_columns(self):
-        """Return indices of columns that look numeric in the current data."""
-        idxs = []
-        for c in range(len(self.headers)):
-            # check a few rows
-            for r in self.rows[:50]:
-                try:
-                    float(r[c])
-                    idxs.append(c)
-                    break
-                except Exception:
-                    continue
-        return sorted(set(idxs))
-
-
+# ---------- Main window ----------
 class MainWindow(QtWidgets.QMainWindow):
-    send_line = pyqtSignal(str)
-
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("LDAT Serial GUI")
-        self.resize(1000, 650)
+        self.setWindowTitle("JTL LDAT")
+        self.resize(980, 640)
 
-        # --- Top controls ---
-        self.port_combo = QtWidgets.QComboBox()
-        self.refresh_ports_btn = QtWidgets.QPushButton("Refresh")
-        self.baud_combo = QtWidgets.QComboBox()
-        for b in [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600]:
-            self.baud_combo.addItem(str(b))
-        self.baud_combo.setCurrentText("115200")
+        # state
+        self.connected = False
+
+        # serial thread
+        self.thread = QtCore.QThread(self)
+        self.worker = SerialWorker()
+        self.worker.moveToThread(self.thread)
+        self.thread.start()
+
+        # UI
+        self._build_ui()
+
+        # signals
+        self.worker.line.connect(self.on_line)
+        self.worker.status.connect(self.log)
+        self.worker.connected.connect(self.on_connected)
+
+        # populate ports
+        self.refresh_ports()
+
+    # ---- UI layout ----
+    def _build_ui(self):
+        central = QtWidgets.QWidget()
+        self.setCentralWidget(central)
+        lay = QtWidgets.QVBoxLayout(central)
+
+        # Top bar: port/baud/connect
+        top = QtWidgets.QHBoxLayout()
+        self.port_cb = QtWidgets.QComboBox()
+        self.refresh_btn = QtWidgets.QPushButton("Refresh")
+        self.baud_cb = QtWidgets.QComboBox()
+        self.baud_cb.addItems(["115200","230400","460800","921600"])
+        self.baud_cb.setCurrentText("115200")
         self.connect_btn = QtWidgets.QPushButton("Connect")
         self.disconnect_btn = QtWidgets.QPushButton("Disconnect")
         self.disconnect_btn.setEnabled(False)
+        top.addWidget(QtWidgets.QLabel("Port:"))
+        top.addWidget(self.port_cb, 2)
+        top.addWidget(self.refresh_btn)
+        top.addSpacing(10)
+        top.addWidget(QtWidgets.QLabel("Baud:"))
+        top.addWidget(self.baud_cb)
+        top.addSpacing(10)
+        top.addWidget(self.connect_btn)
+        top.addWidget(self.disconnect_btn)
+        lay.addLayout(top)
 
-        top_bar = QtWidgets.QHBoxLayout()
-        top_bar.addWidget(QtWidgets.QLabel("Port:"))
-        top_bar.addWidget(self.port_combo, stretch=1)
-        top_bar.addWidget(self.refresh_ports_btn)
-        top_bar.addSpacing(10)
-        top_bar.addWidget(QtWidgets.QLabel("Baud:"))
-        top_bar.addWidget(self.baud_combo)
-        top_bar.addSpacing(10)
-        top_bar.addWidget(self.connect_btn)
-        top_bar.addWidget(self.disconnect_btn)
+        # Mode + calibration controls
+        modebar = QtWidgets.QHBoxLayout()
+        self.mode_cb = QtWidgets.QComboBox()
+        self.mode_cb.addItems(["MODE1 (Calibrate)","MODE2 (Trigger)","MODE3 (Mic)"])
+        self.set_mode_btn = QtWidgets.QPushButton("Set Mode")
+        self.cal_read_btn = QtWidgets.QPushButton("CAL READ")
+        self.cal_auto_btn = QtWidgets.QPushButton("CAL AUTO")
+        self.cal_set_spin = QtWidgets.QSpinBox(); self.cal_set_spin.setRange(0, 4095); self.cal_set_spin.setValue(100)
+        self.cal_set_btn = QtWidgets.QPushButton("CAL SET")
+        modebar.addWidget(self.mode_cb)
+        modebar.addWidget(self.set_mode_btn)
+        modebar.addSpacing(10)
+        modebar.addWidget(self.cal_read_btn)
+        modebar.addWidget(self.cal_auto_btn)
+        modebar.addWidget(QtWidgets.QLabel("thr:"))
+        modebar.addWidget(self.cal_set_spin)
+        modebar.addWidget(self.cal_set_btn)
+        lay.addLayout(modebar)
 
-        # --- Mode + Test controls ---
-        self.mode_group = QtWidgets.QGroupBox("Mode")
-        self.cal_radio = QtWidgets.QRadioButton("Calibration")
-        self.test_radio = QtWidgets.QRadioButton("Test")
-        self.test_radio.setChecked(True)
-        mode_layout = QtWidgets.QHBoxLayout()
-        mode_layout.addWidget(self.cal_radio)
-        mode_layout.addWidget(self.test_radio)
-        self.mode_group.setLayout(mode_layout)
-
-        self.reps_spin = QtWidgets.QSpinBox()
-        self.reps_spin.setRange(1, 1000000)
-        self.reps_spin.setValue(10)
-        self.start_btn = QtWidgets.QPushButton("Start Test")
+        # Test controls
+        testbar = QtWidgets.QHBoxLayout()
+        self.n_spin = QtWidgets.QSpinBox(); self.n_spin.setRange(1, 100000); self.n_spin.setValue(5)
+        self.start_btn = QtWidgets.QPushButton("TEST START N")
+        self.stop_btn = QtWidgets.QPushButton("TEST STOP")
         self.clear_btn = QtWidgets.QPushButton("Clear Table")
-
-        mid_bar = QtWidgets.QHBoxLayout()
-        mid_bar.addWidget(QtWidgets.QLabel("Repetitions:"))
-        mid_bar.addWidget(self.reps_spin)
-        mid_bar.addSpacing(20)
-        mid_bar.addWidget(self.start_btn)
-        mid_bar.addWidget(self.clear_btn)
-        mid_bar.addStretch(1)
-
-        # --- Table ---
-        self.table = QtWidgets.QTableView()
-        self.model = DataTableModel(headers=["trial", "value"])
-        self.table.setModel(self.model)
-        self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
-
-        # --- Log + actions ---
-        self.log = QtWidgets.QPlainTextEdit()
-        self.log.setReadOnly(True)
-        self.send_edit = QtWidgets.QLineEdit()
-        self.send_edit.setPlaceholderText("Type raw command and press Enter (e.g., MODE TEST)")
         self.export_btn = QtWidgets.QPushButton("Export CSV")
-        self.stats_btn = QtWidgets.QPushButton("Compute Stats")
+        self.hello_btn = QtWidgets.QPushButton("HELLO")
+        testbar.addWidget(QtWidgets.QLabel("N:"))
+        testbar.addWidget(self.n_spin)
+        testbar.addWidget(self.start_btn)
+        testbar.addWidget(self.stop_btn)
+        testbar.addSpacing(20)
+        testbar.addWidget(self.clear_btn)
+        testbar.addWidget(self.export_btn)
+        testbar.addSpacing(20)
+        testbar.addWidget(self.hello_btn)
+        lay.addLayout(testbar)
 
-        bottom_bar = QtWidgets.QHBoxLayout()
-        bottom_bar.addWidget(self.export_btn)
-        bottom_bar.addWidget(self.stats_btn)
-        bottom_bar.addStretch(1)
+        # Split: table + right pane (stats + log)
+        split = QtWidgets.QSplitter()
+        split.setOrientation(QtCore.Qt.Horizontal)
 
-        # --- Layout ---
-        central = QtWidgets.QWidget()
-        v = QtWidgets.QVBoxLayout(central)
-        v.addLayout(top_bar)
-        v.addWidget(self.mode_group)
-        v.addLayout(mid_bar)
-        v.addWidget(QtWidgets.QLabel("Results"))
-        v.addWidget(self.table, stretch=2)
-        v.addWidget(QtWidgets.QLabel("Log"))
-        v.addWidget(self.log, stretch=1)
-        v.addWidget(self.send_edit)
-        v.addLayout(bottom_bar)
-        self.setCentralWidget(central)
+        # Table
+        self.model = DataModel()
+        self.view = QtWidgets.QTableView()
+        self.view.setModel(self.model)
+        self.view.horizontalHeader().setStretchLastSection(True)
+        self.view.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        split.addWidget(self.view)
 
-        # --- Serial worker thread ---
-        self.worker = SerialWorker()
-        self.worker_thread = QtCore.QThread()
-        self.worker.moveToThread(self.worker_thread)
-        self.worker_thread.start()
+        # Right pane
+        right = QtWidgets.QWidget()
+        rlay = QtWidgets.QVBoxLayout(right)
 
-        self.worker.line_received.connect(self.on_line)
-        self.worker.connected.connect(self.on_connected)
-        self.send_line.connect(self.worker.write_line)
+        self.stats_label = QtWidgets.QLabel("Stats: —")
+        self.stats_label.setAlignment(QtCore.Qt.AlignTop | QtCore.Qt.AlignLeft)
+        rlay.addWidget(self.stats_label)
 
-        # --- Signals ---
-        self.refresh_ports_btn.clicked.connect(self.refresh_ports)
-        self.connect_btn.clicked.connect(self.on_connect_clicked)
-        self.disconnect_btn.clicked.connect(self.on_disconnect_clicked)
-        self.cal_radio.toggled.connect(self.on_mode_changed)
-        self.start_btn.clicked.connect(self.on_start_test)
-        self.clear_btn.clicked.connect(self.on_clear)
-        self.export_btn.clicked.connect(self.on_export_csv)
-        self.stats_btn.clicked.connect(self.on_stats)
-        self.send_edit.returnPressed.connect(self.on_send_line)
+        self.status_label = QtWidgets.QLabel("Status: disconnected")
+        rlay.addWidget(self.status_label)
 
-        self.refresh_ports()
+        self.log_edit = QtWidgets.QPlainTextEdit()
+        self.log_edit.setReadOnly(True)
+        rlay.addWidget(self.log_edit, 1)
 
-    # ---------- UI Callbacks ----------
-    def log_msg(self, s: str):
-        self.log.appendPlainText(s)
+        split.addWidget(right)
+        split.setStretchFactor(0, 3)
+        split.setStretchFactor(1, 2)
+        lay.addWidget(split, 1)
 
+        # wire buttons
+        self.refresh_btn.clicked.connect(self.refresh_ports)
+        self.connect_btn.clicked.connect(self.do_connect)
+        self.disconnect_btn.clicked.connect(self.do_disconnect)
+
+        self.set_mode_btn.clicked.connect(self.do_set_mode)
+        self.cal_read_btn.clicked.connect(lambda: self.send("CAL READ"))
+        self.cal_auto_btn.clicked.connect(lambda: self.send("CAL AUTO"))
+        self.cal_set_btn.clicked.connect(self.do_cal_set)
+
+        self.start_btn.clicked.connect(self.do_start)
+        self.stop_btn.clicked.connect(lambda: self.send("TEST STOP"))
+        self.clear_btn.clicked.connect(self.clear_table)
+        self.export_btn.clicked.connect(self.export_csv)
+        self.hello_btn.clicked.connect(lambda: self.send("HELLO"))
+
+    # ---- Port handling ----
     def refresh_ports(self):
-        self.port_combo.clear()
-        ports = list_serial_ports()
+        self.port_cb.clear()
+        ports = serial.tools.list_ports.comports()
+        for p in ports:
+            self.port_cb.addItem(p.device)
         if not ports:
-            self.port_combo.addItem("(no ports found)")
-        else:
-            self.port_combo.addItems(ports)
+            self.port_cb.addItem("— no ports —")
 
-    def on_connect_clicked(self):
-        label = self.port_combo.currentText()
-        if "(no ports" in label:
-            self.log_msg("No port to connect.")
-            return
-        port = extract_port_device(label)
-        baud = int(self.baud_combo.currentText())
-        QtCore.QMetaObject.invokeMethod(
-            self.worker, "connect", Qt.ConnectionType.QueuedConnection,
-            QtCore.Q_ARG(str, port), QtCore.Q_ARG(int, baud)
-        )
-
-    def on_disconnect_clicked(self):
-        QtCore.QMetaObject.invokeMethod(self.worker, "disconnect", Qt.ConnectionType.QueuedConnection)
-
-    def on_connected(self, ok: bool, msg: str):
-        self.log_msg(msg)
+    @QtCore.Slot(bool)
+    def on_connected(self, ok: bool):
+        self.connected = ok
         self.connect_btn.setEnabled(not ok)
         self.disconnect_btn.setEnabled(ok)
+        self.status_label.setText("Status: connected" if ok else "Status: disconnected")
+        if ok:
+            # optional handshake
+            QtCore.QTimer.singleShot(150, lambda: self.send("HELLO"))
 
-    def on_mode_changed(self, checked: bool):
-        # calibration if radio is checked; else test
-        if self.cal_radio.isChecked():
-            self.send_line.emit("MODE CAL")
-            self.log_msg(">> MODE CAL")
-        else:
-            self.send_line.emit("MODE TEST")
-            self.log_msg(">> MODE TEST")
 
-    def on_start_test(self):
-        n = self.reps_spin.value()
-        self.send_line.emit(f"TEST START {n}")
-        self.log_msg(f">> TEST START {n}")
-
-    def on_clear(self):
-        self.model.clear()
-        self.log_msg("Cleared table.")
-
-    def on_export_csv(self):
-        path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save CSV", "results.csv", "CSV Files (*.csv)")
-        if not path:
+    def do_connect(self):
+        port = self.port_cb.currentText()
+        if not port or "no ports" in port:
+            self.log("No port selected.")
             return
-        try:
-            self.model.export_csv(path)
-            self.log_msg(f"Saved: {path}")
-        except Exception as e:
-            self.log_msg(f"Export failed: {e}")
+        baud = int(self.baud_cb.currentText())
+        QtCore.QMetaObject.invokeMethod(self.worker, "start", QtCore.Qt.QueuedConnection,
+                                        QtCore.Q_ARG(str, port), QtCore.Q_ARG(int, baud))
 
-    def on_stats(self):
-        if not self.model.rows:
-            self.log_msg("No data to analyze.")
+    def do_disconnect(self):
+        QtCore.QMetaObject.invokeMethod(self.worker, "stop", QtCore.Qt.QueuedConnection)
+
+    # ---- Command helpers ----
+    def send(self, s: str):
+        if not self.connected:
+            self.log("Not connected.")
             return
-        # compute basic stats for numeric columns
-        numeric_cols = self.model.numeric_columns()
-        if not numeric_cols:
-            self.log_msg("No numeric columns detected.")
-            return
+        self.log(f">>> {s}")
+        QtCore.QMetaObject.invokeMethod(self.worker, "write_line", QtCore.Qt.QueuedConnection,
+                                        QtCore.Q_ARG(str, s))
 
-        def percentile(arr, p):
-            if not arr:
-                return float("nan")
-            arr = sorted(arr)
-            k = (len(arr)-1) * (p/100.0)
-            f = int(k)
-            c = min(f+1, len(arr)-1)
-            if f == c:
-                return arr[f]
-            d0 = arr[f] * (c - k)
-            d1 = arr[c] * (k - f)
-            return d0 + d1
+    def do_set_mode(self):
+        idx = self.mode_cb.currentIndex()
+        cmd = {0:"MODE1",1:"MODE2",2:"MODE3"}[idx]
+        self.send(cmd)
 
-        report_lines = []
-        for c in numeric_cols:
-            name = self.model.headers[c] if c < len(self.model.headers) else f"col{c}"
-            vals = []
-            for r in self.model.rows:
-                try:
-                    vals.append(float(r[c]))
-                except Exception:
-                    pass
-            if not vals:
-                continue
-            count = len(vals)
-            mean = sum(vals)/count
-            var = sum((x-mean)**2 for x in vals)/count if count>1 else 0.0
-            std = var**0.5
-            mn = min(vals)
-            mx = max(vals)
-            p10 = percentile(vals, 10)
-            p50 = percentile(vals, 50)
-            p90 = percentile(vals, 90)
-            report_lines.append(
-                f"[{name}] n={count}  mean={mean:.6g}  std={std:.6g}  min={mn:.6g}  "
-                f"p10={p10:.6g}  median={p50:.6g}  p90={p90:.6g}  max={mx:.6g}"
-            )
+    def do_cal_set(self):
+        thr = self.cal_set_spin.value()
+        self.send(f"CAL SET {thr}")
 
-        if report_lines:
-            self.log_msg("Stats:\n" + "\n".join(report_lines))
-        else:
-            self.log_msg("No numeric data found.")
+    def do_start(self):
+        n = self.n_spin.value()
+        # You can force Mode2 here so the scheduler runs even if user forgot:
+        # self.send("MODE2")
+        self.send(f"TEST START {n}")
+        # Optional: clear table on each run
+        # self.clear_table()
 
-    def on_send_line(self):
-        s = self.send_edit.text().strip()
-        if s:
-            self.send_line.emit(s)
-            self.log_msg(">> " + s)
-            self.send_edit.clear()
-
-    # ---------- Serial line handler ----------
-    @QtCore.pyqtSlot(str)
+    # ---- Incoming lines ----
+    @QtCore.Slot(str)
     def on_line(self, line: str):
-        # Examples:
-        #   ACK ok
-        #   DATA,1,123.45
-        #   DONE
-        self.log_msg(line)
-        if line.startswith("DATA"):
-            parts = [p.strip() for p in line.split(",")]
-            # If it's the first DATA line and headers unknown, set default headers
-            if self.model.columnCount() == 0:
-                # Create generic headers based on number of columns
-                self.model.set_headers([f"col{i}" for i in range(len(parts))])
-            # If header looks default and length changed, reset headers
-            if len(parts) != self.model.columnCount():
-                self.model.set_headers([f"col{i}" for i in range(len(parts))])
-            self.model.add_row(parts)
+        self.log(line)
+        if not line:
+            return
 
+        if line.startswith("DATA,"):
+            parts = [p.strip() for p in line.split(",")]
+            # header "DATA,trial,latency_us,light"
+            if len(parts) == 4 and parts[1].lower() == "trial":
+                return
+            # data row
+            if len(parts) >= 4:
+                try:
+                    trial = int(parts[1]); latency = int(parts[2]); light = int(parts[3])
+                except:
+                    return
+                self.model.add_row(trial, latency, light)
+                self.update_stats()
+
+        elif line.startswith("DONE"):
+            self.status_label.setText("Status: run complete")
+
+    # ---- Stats & CSV ----
+    def update_stats(self):
+        vals = self.model.latency_values()
+        if not vals:
+            self.stats_label.setText("Stats: —")
+            return
+        s = f"Stats: n={len(vals)}  mean={mean(vals):.1f}  median={median(vals):.1f}  " \
+            f"min={min(vals)}  max={max(vals)}  std={(pstdev(vals) if len(vals)>1 else 0):.1f}"
+        self.stats_label.setText(s)
+
+    def clear_table(self):
+        self.model.clear_data()
+        self.update_stats()
+
+    def export_csv(self):
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Export CSV", "ldat_data.csv", "CSV Files (*.csv)")
+        if not path: return
+        with open(path, "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["trial","latency_us","light"])
+            for r in range(self.model.rowCount()):
+                w.writerow([self.model.item(r,c).text() for c in range(3)])
+        self.log(f"Saved: {path}")
+
+    # ---- Logging ----
+    def log(self, msg: str):
+        ts = time.strftime("%H:%M:%S")
+        self.log_edit.appendPlainText(f"[{ts}] {msg}")
 
 def main():
     app = QtWidgets.QApplication(sys.argv)
     w = MainWindow()
     w.show()
     sys.exit(app.exec())
-
 
 if __name__ == "__main__":
     main()

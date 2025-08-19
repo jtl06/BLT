@@ -47,7 +47,7 @@ typedef enum {
 #define ADC_BUF_LEN 256u
 #endif
 
-#define MODE2_SPACING_MS 500u
+#define MODE2_SPACING_MS 5000u // 2 seconds
 
 #define MIC_DEBOUNCE_US 20000u  // 20 ms
 
@@ -535,7 +535,7 @@ void send_mouse_click(void)
 
   hid_report[0] = 0x01; 
   USBD_HID_SendReport(&hUsbDeviceFS, hid_report, sizeof(hid_report));
-  HAL_Delay(20);
+  HAL_Delay(10);
 
   hid_report[0] = 0x00;
   USBD_HID_SendReport(&hUsbDeviceFS, hid_report, sizeof(hid_report));
