@@ -6,23 +6,30 @@ BLT features include:
 - Run batched, self-triggered tests via USB mouse HID inputs, with latency logging.
 - Microphone triggered tests for testing mouse latency.
 
-> Inspired by the NVIDIA LDAT. This project is independent and unaffiliated with NVIDIA.
-
 ---
 ## Demo
-WIP
+WIP - todo: add a gif of the gui
 
 ## Instructions
 WIP
 
 ## Architecture
-WIP
+[Placeholder for Block diagram]
+- MCU
+  - USB HID mouse
+  - ADC w/ circular DMA: light sensor
+  - 1Mhz TIM clock for 1us resolution
+  - LPUART over ST-Link VCP: command IO and telemtry
+
 
 ## Timing
 WIP
 
 ## Hardware
-WIP
+- STM32G474 (or similar device with USB FS + ADC)
+- TEMT6000 Phototransistor (A photodiode should also work)
+- LM393 Microphone module
+- Two USB cables
 
 ## Roadmap
 - Readme and License
@@ -31,3 +38,4 @@ WIP
 - Composite USB
 - Custom PCBs
 
+> Inspired by the NVIDIA LDAT. This project is independent and unaffiliated with NVIDIA.
