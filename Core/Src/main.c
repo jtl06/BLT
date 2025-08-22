@@ -37,7 +37,7 @@ typedef enum {
   MODE1_CALIBRATION = 1,
   MODE2_TRIGGER     = 2,
   MODE3_MIC         = 3,
-} ldat_mode_t;
+} blt_mode_t;
 
 /* USER CODE END PTD */
 
@@ -51,7 +51,7 @@ typedef enum {
 
 #define MIC_DEBOUNCE_US 20000u  // 20 ms
 
-#define FW_VERSION "LDAT 1.0"
+#define FW_VERSION "BLT 1.0"
 
 
 /* USER CODE END PD */
@@ -90,7 +90,7 @@ static uint8_t  cmd_len = 0;
 
 volatile uint16_t g_adc_dma_buf[ADC_BUF_LEN];
 
-static volatile ldat_mode_t g_mode = MODE1_CALIBRATION;
+static volatile blt_mode_t g_mode = MODE1_CALIBRATION;
 
 volatile bool g_mic_triggered = false;
 volatile bool g_is_timing = false;
@@ -99,7 +99,7 @@ volatile uint32_t g_end_time = 0;
 
 volatile uint32_t g_last_trigger_time = 0;
 const uint32_t DEBOUNCE_US = 200000; // 200ms debounce window
-volatile ldat_mode_t g_current_mode = MODE1_CALIBRATION;
+volatile blt_mode_t g_current_mode = MODE1_CALIBRATION;
 
 static volatile bool g_btn_click_req = false;
 
@@ -179,7 +179,7 @@ int main(void)
   }
 
   printf("Continuous ADC-DMA running, buf=%u samples\r\n", ADC_BUF_LEN);
-  printf("Initialized, JTL LDAT v0.1.0\r\n");
+  printf("Initialized, JTL BLT v0.1.0\r\n");
   HAL_TIM_Base_Start(&htim2);
   uart_start_rx_it();
   

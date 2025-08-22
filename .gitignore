@@ -56,3 +56,14 @@ dkms.conf
 
 # ignore build output
 build/
+
+# vscode
+.vscode/
+
+# MacOS
+.DS_Store
+
+# Python
+pc-app/__pycache__/
+pc-app/*.pyc
+pc-app/.venv/

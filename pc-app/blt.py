@@ -110,7 +110,7 @@ class DataModel(QtGui.QStandardItemModel):
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("JTL LDAT")
+        self.setWindowTitle("JTL BLT")
         self.resize(980, 640)
 
         # state
@@ -343,7 +343,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.update_stats()
 
     def export_csv(self):
-        path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Export CSV", "ldat_data.csv", "CSV Files (*.csv)")
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Export CSV", "blt_data.csv", "CSV Files (*.csv)")
         if not path: return
         with open(path, "w", newline="") as f:
             w = csv.writer(f)
