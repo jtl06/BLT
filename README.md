@@ -7,6 +7,9 @@ BLT features include:
 - Microphone triggered tests for testing mouse latency.
 
 ---
+## Objective
+WIP
+
 ## Demo
 WIP - todo: add a gif of the gui
 
@@ -23,7 +26,12 @@ WIP
 
 
 ## Timing
-WIP
+<img width="851" height="111" alt="BLT" src="https://github.com/user-attachments/assets/40132b81-9aaa-4089-884b-2c66f89c41d9" />
+
+Mode 2: USB Trigger, latency = t<sub>1</sub> - t<sub>0</sub>u
+
+Mode 3: Mic Trigger, latency = t<sub>1</sub> - t<sub>0</sub>m
+
 
 ## Hardware
 - STM32G474 (or similar device with USB FS + ADC)
