@@ -40,10 +40,11 @@ Mode 3: Mic Trigger, latency = t<sub>1</sub> - t<sub>0</sub>m
 - Two USB cables
 
 ## Roadmap
-- Readme and License
+- Finish Readme
 - Example data and demo
 - 3D printed enclosure for sensor
 - Composite USB
-- Custom PCBs
+- Custom PCB for manufacturing
+- Switch to MCU/board with USB HS PHY support for 8khz polling rate
 
 > Inspired by the NVIDIA LDAT. This project is independent and unaffiliated with NVIDIA.
