@@ -182,6 +182,8 @@ int main(void)
   printf("Initialized, JTL BLT v0.1.0\r\n");
   HAL_TIM_Base_Start(&htim2);
   uart_start_rx_it();
+  printf("%lu\n", USBD_HID_GetPollingInterval(&hUsbDeviceFS));
+  
   
   /* USER CODE END 2 */
 
