@@ -182,7 +182,7 @@ int main(void)
   printf("Initialized, JTL BLT v0.1.0\r\n");
   HAL_TIM_Base_Start(&htim2);
   uart_start_rx_it();
-  printf("%lu\n", USBD_HID_GetPollingInterval(&hUsbDeviceFS));
+  // printf("%lu\n", USBD_HID_GetPollingInterval(&hUsbDeviceFS)); // send polling rate
   
   
   /* USER CODE END 2 */
@@ -536,7 +536,7 @@ void send_mouse_click(void)
 
   hid_report[0] = 0x01; 
   USBD_HID_SendReport(&hUsbDeviceFS, hid_report, sizeof(hid_report));
-  HAL_Delay(10);
+  HAL_Delay(1);
 
   hid_report[0] = 0x00;
   USBD_HID_SendReport(&hUsbDeviceFS, hid_report, sizeof(hid_report));
