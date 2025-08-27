@@ -3,8 +3,8 @@ The Better Latency Tester (BLT) is an end to end latency measuring device that m
 
 BLT features include:
 - Automatic or manual threshhold calibration
-- Run batched, self-triggered tests via USB mouse HID inputs, with latency logging.
-- Microphone triggered tests for testing mouse latency.
+- Run batched, self-triggered tests via USB mouse HID inputs, with latency logging
+- Microphone triggered tests for testing mouse latency
 
 ---
 ## Objective
