@@ -202,9 +202,9 @@ while (1) {
   if (g_mode == MODE2_TRIGGER && g_tests_remaining && !g_waiting_for_light) {
     if ((now_ms - g_last_launch_ms) >= MODE2_SPACING_MS) {
       g_last_launch_ms = now_ms;
-      g_waiting_for_light = true;
-      g_t_start_us = tim2_us();  //start time
       g_last_idx = adc_write_idx();
+      g_t_start_us = tim2_us();  //start time
+      g_waiting_for_light = true;
       send_mouse_click();
     }
   }
