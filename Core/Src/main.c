@@ -51,7 +51,7 @@ typedef enum {
 
 #define MIC_DEBOUNCE_US 20000u  // 20 ms
 
-#define FW_VERSION "BLT 1.0"
+#define FW_VERSION "BLT 0.1.0"
 
 
 /* USER CODE END PD */
@@ -103,6 +103,9 @@ volatile blt_mode_t g_current_mode = MODE1_CALIBRATION;
 
 static volatile bool g_btn_click_req = false;
 
+static volatile uint32_t g_last_idx = 0;
+
+
 
 /* USER CODE END PV */
 
@@ -121,6 +124,9 @@ static void send_line(const char *s);
 static void handle_cmd(const char *cmd);
 static inline uint32_t tim2_us(void);
 static inline int usb_is_configured(void);
+
+static inline uint32_t adc_write_idx(void);
+static bool detect_cross_and_stamp(uint16_t thr, uint32_t* t1_out);
 
 
 /* USER CODE END PFP */
@@ -197,30 +203,11 @@ while (1) {
     if ((now_ms - g_last_launch_ms) >= MODE2_SPACING_MS) {
       g_last_launch_ms = now_ms;
       g_waiting_for_light = true;
-      send_mouse_click();
       g_t_start_us = tim2_us();  //start time
+      g_last_idx = adc_write_idx();
+      send_mouse_click();
     }
   }
-
-  // Complete a trial when light crosses threshold
-  if (g_waiting_for_light && (adc_latest_sample() >= g_light_threshold)) {
-    uint32_t t_end = tim2_us();
-    uint32_t dt_us = (uint32_t)(t_end - g_t_start_us);
-
-    ++g_trial_idx;
-    char out[96];
-    int n = snprintf(out, sizeof out, "DATA,%lu,%lu,%u\r\n",
-                     (unsigned long)g_trial_idx,
-                     (unsigned long)dt_us,
-                     (unsigned)adc_latest_sample());
-    HAL_UART_Transmit(&hlpuart1, (uint8_t*)out, (uint16_t)n, HAL_MAX_DELAY);
-
-    g_waiting_for_light = false;
-    if (--g_tests_remaining == 0) {
-      send_line("DONE\r\n");
-    }
-  }
-  
   __WFI();
     /* USER CODE END WHILE */
 
@@ -310,7 +297,7 @@ static void MX_ADC1_Init(void)
   hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
   hadc1.Init.DMAContinuousRequests = ENABLE;
-  hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
+  hadc1.Init.Overrun = ADC_OVR_DATA_OVERWRITTEN;
   hadc1.Init.OversamplingMode = DISABLE;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
   {
@@ -329,7 +316,7 @@ static void MX_ADC1_Init(void)
   */
   sConfig.Channel = ADC_CHANNEL_1;
   sConfig.Rank = ADC_REGULAR_RANK_1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_2CYCLES_5;
+  sConfig.SamplingTime = ADC_SAMPLETIME_12CYCLES_5;
   sConfig.SingleDiff = ADC_SINGLE_ENDED;
   sConfig.OffsetNumber = ADC_OFFSET_NONE;
   sConfig.Offset = 0;
@@ -514,6 +501,35 @@ static inline uint16_t adc_latest_sample(void)
     return g_adc_dma_buf[idx];
 }
 
+
+static inline uint32_t adc_write_idx(void){
+    // NDTR = how many transfers LEFT; write index = prod
+    uint32_t ndtr = __HAL_DMA_GET_COUNTER(&hdma_adc1);
+    return (ADC_BUF_LEN - ndtr) & (ADC_BUF_LEN - 1);
+}
+
+static bool detect_cross_and_stamp(uint16_t thr, uint32_t* t1_out){
+    uint32_t write = adc_write_idx();
+    uint32_t idx   = g_last_idx;
+
+    while (idx != write) {
+        uint16_t s = g_adc_dma_buf[idx];
+        if (s >= thr) {
+            uint32_t now = tim2_us(); // tim2 ticks
+            // How far behind "now" that sample is, in samples (mod ring)
+            uint32_t samples_behind = (write - idx) & (ADC_BUF_LEN - 1);
+            // sample time = 3 us
+            uint32_t ticks_behind = samples_behind * 3;
+            *t1_out = now - ticks_behind;
+            g_last_idx = write; // consume everything up to 'write'
+            return true;
+        }
+        idx = (idx + 1) & (ADC_BUF_LEN - 1);
+    }
+    g_last_idx = write;
+    return false;
+}
+
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
   if (GPIO_Pin == MIC1_Pin && g_mode == MODE3_MIC) {
     uint32_t now = tim2_us();
@@ -649,6 +665,35 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart) {
     __HAL_UART_CLEAR_OREFLAG(huart);
     HAL_UART_Receive_IT(&hlpuart1, &rx_byte, 1);
   }
+}
+
+void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
+{
+    (void)hadc;
+    if (g_waiting_for_light) {
+        uint32_t t1;
+        if (detect_cross_and_stamp(g_light_threshold, &t1)) {
+            uint32_t dt_us = (uint32_t)(t1 - g_t_start_us);
+            ++g_trial_idx;
+            char out[96];
+            int n = snprintf(out, sizeof out, "DATA,%lu,%lu,%u\r\n",
+                             (unsigned long)g_trial_idx,
+                             (unsigned long)dt_us,
+                             (unsigned)adc_latest_sample());
+            HAL_UART_Transmit(&hlpuart1, (uint8_t*)out, (uint16_t)n, HAL_MAX_DELAY);
+
+            g_waiting_for_light = false;
+            if (--g_tests_remaining == 0) {
+                send_line("DONE\r\n");
+            }
+        }
+    }
+}
+
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
+{
+    // Same handling at full-complete boundary
+    HAL_ADC_ConvHalfCpltCallback(hadc);
 }
 
 

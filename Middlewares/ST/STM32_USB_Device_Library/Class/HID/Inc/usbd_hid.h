@@ -52,11 +52,11 @@ extern "C" {
 #define HID_REPORT_DESC                            0x22U
 
 #ifndef HID_HS_BINTERVAL
-#define HID_HS_BINTERVAL                           0x04U
+#define HID_HS_BINTERVAL                           0x07U
 #endif /* HID_HS_BINTERVAL */
 
 #ifndef HID_FS_BINTERVAL
-#define HID_FS_BINTERVAL                           0x01U
+#define HID_FS_BINTERVAL                           0x0AU
 #endif /* HID_FS_BINTERVAL */
 
 #define HID_REQ_SET_PROTOCOL                       0x0BU
