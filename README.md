@@ -8,7 +8,10 @@ BLT features include:
 
 ---
 ## Demo
-WIP - todo: add a gif of the gui
+https://github.com/user-attachments/assets/7085f5da-f47d-4a11-8dff-cdf1d9c3fb22
+TEMT6000 Phototransistor Module             |  BLT Hardware
+:-------------------------:|:-------------------------:
+<img src="https://github.com/user-attachments/assets/5b28370e-729f-4816-abe0-36eb18c60471">   |  <img src="https://github.com/user-attachments/assets/832a1ddd-a02a-4b15-afb8-035833a1cc8b">
 
 ## Sample Data
 | Settings                     | n   | Median | Mean   | Std Dev | Min   | Max    |
