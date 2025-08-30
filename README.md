@@ -17,8 +17,12 @@ WIP - todo: add a gif of the gui
 | 60hz, 60fps, Vsync On, Reflex On   | 100 | 74.951 | 74.572 | 4.871   | 66.426 | 82.621 |
 | 60hz, 64fps Vsync Off, Reflex Off | 100 | 31.338  | 31.316  | 6.524   | 18.439 | 45.391 |
 | 60hz, 64fps Vsync Off, Reflex On  | 100 | 27.529  | 27.335  | 6.268 | 6.569 | 40.024 |
+| 240hz, 240fps, Vsync On, Reflex Off    | 100 | 13.261 | 13.839 | 2.507   | 9.621 | 19.396 |
+| 240hz, 240fps, Vsync On, Reflex On   | 100 | 13.359 | 13.898 | 2.521   | 4.972 | 20.301 |
+| 240hz, 240fps Vsync Off, Reflex Off | 100 | 10.304  | 10.457  | 1.900   | 5.338 | 15.056 |
+| 240hz, 240fps Vsync Off, Reflex On  | 100 | 10.599  | 10.479  | 1.967 | 6.098 | 16.648 |
 
-Tested in Counter-Strike 2, times in ms. See docs for raw data. Note: CS2 implements a minimum framerate cap of 64fps when not using vsync
+Tested in Counter-Strike 2, times in ms. See docs for raw data. Note: CS2 implements a minimum framerate cap of 64fps when not using vsync.
 
 ## Requirements
 ### Hardware
