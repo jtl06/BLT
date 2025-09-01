@@ -39,7 +39,7 @@ High settings test, with greater GPU load, Reflex has a larger, more measurable 
 - NUCLEO-G474RE (or compatible STM32 with USB FS + ADC)
 - TEMT6000 phototransistor (or photodiode)
 - LM393 microphone module
-- 2× USB cables (one for ST-Link serial comms, one for the USB HID Device)
+- 2 USB cables (one for ST-Link serial comms, one for the USB HID Device)
 ### Software
 - [Arm GNU Toolchain](https://developer.arm.com/downloads/-/arm-gnu-toolchain) (arm-none-eabi-gcc, make)
 - [STM32CubeMX](https://www.st.com/en/development-tools/stm32cubemx.html) (for .ioc regeneration)
