@@ -1,20 +1,17 @@
 /* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
-  * @file           : main.c
-  * @brief          : Main program body
-  ******************************************************************************
-  * @attention
+  * @file    main.c
+  * @brief   BLT (Better Latency Tester) firmware entry.
   *
-  * Copyright (c) 2025 STMicroelectronics.
-  * All rights reserved.
+  * Project: BLT – input-to-photon latency tester.
   *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
+  * Copyright (c) 2025 Jacen Li
+  * Licensed under the MIT License (see LICENSE).
   *
-  ******************************************************************************
-  */
+  * Portions of this file are generated from STM32CubeMX templates:
+  *   Copyright (c) 2025 STMicroelectronics.
+  *   Licensed under the BSD-3-Clause license.
+*/
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
@@ -22,6 +19,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "usbd_hid.h"
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -98,7 +96,7 @@ volatile uint32_t g_start_time = 0;
 volatile uint32_t g_end_time = 0;
 
 volatile uint32_t g_last_trigger_time = 0;
-const uint32_t DEBOUNCE_US = 200000; // 200ms debounce window
+const uint32_t DEBOUNCE_US = 2000000; // 2s debounce window
 volatile blt_mode_t g_current_mode = MODE1_CALIBRATION;
 
 static volatile bool g_btn_click_req = false;

@@ -25,14 +25,20 @@ TEMT6000 Phototransistor Module             |  BLT Hardware
 | 240hz, 240fps Vsync Off, Reflex Off | 100 | 10.304  | 10.457  | 1.900   | 5.338 | 15.056 |
 | 240hz, 240fps Vsync Off, Reflex On  | 100 | 10.599  | 10.479  | 1.967 | 6.098 | 16.648 |
 
-Tested in Counter-Strike 2, times in ms. See docs for raw data. Note: CS2 implements a minimum framerate cap of 64fps when not using vsync.
+Tested in Counter-Strike 2, times in ms. Low settings. See docs for raw data. Note: CS2 implements a minimum framerate cap of 64fps when not using vsync.
+
+|Settings|n|Median|Mean|Std Dev|Min|Max|
+|------------------------------|-----|--------|--------|---------|-------|--------|
+|240hz, uncapped (~220fps), Vsync Off, Reflex Off|100|17.723|17.586|2.213|5.388|22.063|
+|240hz, uncapped (~220fps),  Vsync Off, Reflex On|100|14.364|14.361|1.862|8.834|18.980|
+High settings test, with greater GPU load, Reflex has a larger, more measurable improvement.  
 
 ## Requirements
 ### Hardware
 - NUCLEO-G474RE (or compatible STM32 with USB FS + ADC)
 - TEMT6000 phototransistor (or photodiode)
 - LM393 microphone module
-- 2× USB cables (one for ST-Link, one for USB device under test)
+- 2× USB cables (one for ST-Link serial comms, one for the USB HID Device)
 ### Software
 - [Arm GNU Toolchain](https://developer.arm.com/downloads/-/arm-gnu-toolchain) (arm-none-eabi-gcc, make)
 - [STM32CubeMX](https://www.st.com/en/development-tools/stm32cubemx.html) (for .ioc regeneration)
