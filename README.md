@@ -31,6 +31,7 @@ Tested in Counter-Strike 2, times in ms. Low settings. See docs for raw data. No
 |------------------------------|-----|--------|--------|---------|-------|--------|
 |240hz, uncapped (~220fps), Vsync Off, Reflex Off|100|17.723|17.586|2.213|5.388|22.063|
 |240hz, uncapped (~220fps),  Vsync Off, Reflex On|100|14.364|14.361|1.862|8.834|18.980|
+
 High settings test, with greater GPU load, Reflex has a larger, more measurable improvement.  
 
 ## Requirements
