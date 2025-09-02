@@ -14,6 +14,7 @@ TEMT6000 Phototransistor Module             |  BLT Hardware
 <img src="https://github.com/user-attachments/assets/5b28370e-729f-4816-abe0-36eb18c60471">   |  <img src="https://github.com/user-attachments/assets/832a1ddd-a02a-4b15-afb8-035833a1cc8b">
 
 ## Sample Data
+### Vsync On vs Off vs Reflex
 | Settings                     | n   | Median | Mean   | Std Dev | Min   | Max    |
 |------------------------------|-----|--------|--------|---------|-------|--------|
 | 60hz, 60fps, Vsync On, Reflex Off    | 100 | 74.101 | 74.507 | 5.222   | 66.134 | 93.211 |
@@ -27,12 +28,28 @@ TEMT6000 Phototransistor Module             |  BLT Hardware
 
 Tested in Counter-Strike 2, times in ms. Low settings. See docs for raw data. Note: CS2 implements a minimum framerate cap of 64fps when not using vsync.
 
+### Reflex, with higher GPU Load (to maximize impact of render pipeline load)
 |Settings|n|Median|Mean|Std Dev|Min|Max|
 |------------------------------|-----|--------|--------|---------|-------|--------|
 |240hz, uncapped (~220fps), Vsync Off, Reflex Off|100|17.723|17.586|2.213|5.388|22.063|
 |240hz, uncapped (~220fps),  Vsync Off, Reflex On|100|14.364|14.361|1.862|8.834|18.980|
 
 High settings test, with greater GPU load, Reflex has a larger, more measurable improvement.  
+
+### Mouse Testing using Mic Mode
+| Settings                     | n   | Median | Mean   | Std Dev | Min   | Max    |
+|------------------------------|-----|--------|--------|---------|-------|--------|
+| VXE MAD R, 125hz   | 25 | 24.294  | 24.677 | 2.441   | 21.067 | 29.780 |
+| VXE MAD R, 250hz   | 25 | 21.855 | 21.915 | 1.775   | 18.865 | 25.430 |
+| VXE MAD R, 500hz | 25 | 21.030  | 21.324  | 1.726   | 17.996 | 24.752 |
+| VXE MAD R, 1000hz  | 25 | 20.561 | 20.346 | 1.506 | 17.291 | 22.533 |
+| VXE MAD R, 2000hz   | 25 | 20.566 | 20.729 | 1.588   | 17.852 | 23.397 |
+| VXE MAD R, 4000hz   | 25 | 20.518 | 20.561 | 1.100   | 19.012 | 23.409 |
+| VXE MAD R, 8000hz| 25 | 19.558  | 20.029  | 1.572   | 17.983 | 23.513 |
+| Razer Viper Pro V2, 4000hz  | 25 | 20.146  | 20.056  | 1.386 | 17.637 | 23.038 |
+| Trigger Mode, 1000hz  | 100 | 20.146  | 20.056  | 1.386 | 17.637 | 23.038 |
+
+Tested at 240hz, Low settings, Reflex On. At these sample size, could not find significant improvement above 1khz. TODO: Larger sample sizes
 
 ## Requirements
 ### Hardware
@@ -55,6 +72,9 @@ High settings test, with greater GPU load, Reflex has a larger, more measurable 
 | **Serial Comms**             | PA2/PA3 | LPUART TX/RX           | Bidirectional communications for app control|
 ### Flashing
 Flash via ST-LINK, using makefile and command ```make flash```
+
+### Operation
+Open up BLT-gui.exe or use python to open app
 
 ## Architecture
 - MCU
