@@ -227,5 +227,5 @@ clean:
 
 # make flash to flash
 flash: all
-	openocd -f interface/stlink.cfg -f target/stm32g4x.cfg -c "program build/$(TARGET).elf verify reset exit"
+	openocd -s openocd -f openocd/blt.cfg -c "program build/$(TARGET).elf verify reset exit"
 # *** EOF ***
