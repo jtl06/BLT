@@ -30,6 +30,8 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
+#include <inttypes.h>
+#include "isr_log.h"
 
 
 /* USER CODE END Includes */
@@ -100,10 +102,10 @@ static inline uint16_t adc_latest_sample(void);
 static void uart_start_rx_it(void);
 static void send_line(const char *s);
 static void handle_cmd(const char *cmd);
-static inline uint32_t tim2_us(void);
 
 static inline uint32_t adc_write_idx(void);
 static bool detect_cross_and_stamp(uint16_t thr, uint32_t* t1_out);
+static void isr_log_dump_stats(void);
 
 
 /* USER CODE END PFP */
@@ -312,10 +314,6 @@ static inline void send_line(const char *s) {
   HAL_UART_Transmit(&hlpuart1, (uint8_t*)s, (uint16_t)strlen(s), HAL_MAX_DELAY);
 }
 
-static inline uint32_t tim2_us(void) {
-  return __HAL_TIM_GET_COUNTER(&htim2); // TIM2 configured 1 MHz, 32-bit
-}
-
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
   if (huart == &hlpuart1) {
     uint8_t c = rx_byte;
@@ -400,7 +398,11 @@ static void handle_cmd(const char *cmd) {
     if (g_mode == MODE2_TRIGGER && g_tests_remaining) {
       g_last_launch_us = tim2_us() - MODE2_SPACING_US; // so it fires right away
     }
-
+  
+  //return jitter
+  } else if (strcmp(cmd, "JIT") == 0) {
+    isr_log_dump_stats();
+    isr_log_reset();
   } else {
     send_line("ERR UNKNOWN\r\n");
   }
@@ -442,6 +444,31 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
     HAL_ADC_ConvHalfCpltCallback(hadc);
 }
 
+void isr_log_dump_stats(void) {
+    uint16_t n = isr_log_count();
+    if (n < 2) { printf("not enough samples\n"); return; }
+
+    uint32_t prev = isr_log_get(0);
+    uint64_t sum  = 0;
+    uint32_t min_d = 0xFFFFFFFFu, max_d = 0;
+
+    for (uint16_t i = 1; i < n; i++) {
+        uint32_t curr  = isr_log_get(i);
+        uint32_t delta = (curr - prev);   // unsigned handles 32-bit wrap
+        prev = curr;
+
+        if (delta < min_d) min_d = delta;
+        if (delta > max_d) max_d = delta;
+        sum += delta;
+    }
+
+    uint32_t count_periods = n - 1;
+    uint32_t avg = (uint32_t)(sum / count_periods);
+    uint32_t pkpk = max_d - min_d;
+
+    printf("ISR period stats: count=%" PRIu16 " , avg=%" PRIu32 " us, min=%" PRIu32 " us, max=%" PRIu32 " us, jitter=±%" PRIu32 " us\n",
+           n, avg, min_d, max_d, pkpk/2);
+}
 
 /* USER CODE END 4 */
 

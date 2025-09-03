@@ -76,7 +76,8 @@ Core/Src/gpio.c \
 Core/Src/adc.c \
 Core/Src/dma.c \
 Core/Src/usart.c \
-Core/Src/tim.c
+Core/Src/tim.c \
+Core/Src/isr_log.c
 
 # ASM sources
 ASM_SOURCES =  \

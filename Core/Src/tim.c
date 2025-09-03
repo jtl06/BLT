@@ -21,6 +21,7 @@
 #include "tim.h"
 
 /* USER CODE BEGIN 0 */
+extern TIM_HandleTypeDef htim2;
 
 /* USER CODE END 0 */
 
@@ -100,5 +101,8 @@ void HAL_TIM_Base_MspDeInit(TIM_HandleTypeDef* tim_baseHandle)
 }
 
 /* USER CODE BEGIN 1 */
+uint32_t tim2_us(void) {
+    return __HAL_TIM_GET_COUNTER(&htim2);
+}
 
 /* USER CODE END 1 */
