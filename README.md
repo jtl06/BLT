@@ -74,7 +74,11 @@ Tested at 240hz, Low settings, Reflex On. At these sample size, could not find s
 Flash via ST-LINK, using makefile and command ```make flash```
 
 ### Operation
-Open up BLT-gui.exe or use python to open app
+1. Plug the USB cable from the board into your PC under test (should enumerate as a USB HID device).
+2. Place the photodiode over the area that will recieve the flash. If using mic mode, place the microphone module near the mouse click.
+3. Windows: launch the prebuilt GUI executable BLT-gui.exe, Linux/macOS: run the Python app directly with ```python blt_gui.py```
+4. Follow GUI to Set Mode, Calibrate, and Test. Data can be exported via CSV.
+
 
 ## Architecture
 - MCU
@@ -94,9 +98,7 @@ Mode 3: Mic Trigger, latency = t<sub>1</sub> - t<sub>0</sub>m
 
 ## Roadmap
 - Finish Readme
-- Example data and demo
-- 3D printed enclosure for sensor
-- Composite USB
+- Linux Sidecar for data handling
 - Custom PCB for manufacturing
 - Switch to MCU/board with USB HS PHY support for 8khz polling rate
 
