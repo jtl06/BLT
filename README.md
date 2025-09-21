@@ -100,6 +100,8 @@ Mode 2: USB Trigger, latency = t<sub>1</sub> - t<sub>0</sub>u
 
 Mode 3: Mic Trigger, latency = t<sub>1</sub> - t<sub>0</sub>m
 
+ISR period stats: avg=400 us, min=391 us, max=409 us, jitter=±9 us
+
 
 ## Roadmap
 - Finish Readme
