@@ -13,6 +13,11 @@ TEMT6000 Phototransistor Module             |  BLT Hardware
 :-------------------------:|:-------------------------:
 <img src="https://github.com/user-attachments/assets/5b28370e-729f-4816-abe0-36eb18c60471">   |  <img src="https://github.com/user-attachments/assets/832a1ddd-a02a-4b15-afb8-035833a1cc8b">
 
+## Limitations
+- No absolute calibration, numbers should only be used to compare relative values, as the BLT has not been calibrated against an external reference such as a high speed (1000fps+) camera.
+- Sample size requirements, latency is stochastic, requires many samples to have significant results.
+
+
 ## Sample Data
 ### Vsync On vs Off vs Reflex
 | Settings                     | n   | Median | Mean   | Std Dev | Min   | Max    |
